@@ -1,124 +1,98 @@
 
 
-# Valence v2 - Legal Document Analysis Platform (Frontend Only)
+# Update Upload Flow to Match Backend API Contract
 
-## Overview
-A React frontend for legal document analysis that connects to an external backend API. The UI handles 471+ ontology questions with search, filtering, and virtualized scrolling.
-
----
-
-## Frontend Components
-
-### 1. Application Shell
-- Clean header with "Valence" branding
-- Navigation: Deals, Upload
-- Light theme with professional legal/financial aesthetic
-- Backend API URL configured via environment variable (`VITE_API_URL`)
-
-### 2. Deal Upload Page
-- Drag-and-drop PDF upload zone
-- Progress states: Uploading → Extracting → Complete
-- Error handling with clear user messages
-- Auto-redirect to deal detail on success
-
-### 3. Deals List Page
-- Clean table view: Deal Name, Borrower, Upload Date
-- Click row to navigate to deal detail
-- Search/filter by deal name
-- Empty state for no deals
-
-### 4. Deal Detail Page with Ontology Browser
-- Header showing deal name and borrower
-- **Category Tabs**: MFN Provisions (42 questions), Restricted Payments (429 questions), Pattern Detection
-- **Within each category**:
-  - Search box to filter questions
-  - Virtualized scrolling list for performance with hundreds of items
-  - Collapsible sub-categories where applicable
-- **Each question row displays**:
-  - Question text
-  - Typed answer: ✓/✗ for boolean, number, string, or "Not found"
-  - "Source" button to view provenance
-
-### 5. Provenance Panel
-- Slide-out sheet when clicking "Source" button
-- Displays: Source text (exact quote), Page number, Section reference
-- Confidence indicator
-- Clean, readable typography for legal text
-
-### 6. Q&A Interface
-- Chat-style input on deal detail page
-- Example questions shown as placeholder hints
-- Displays answer with supporting evidence
-- Shows which primitives were used to answer
+## Summary
+Update the frontend upload flow to match the backend API requirements, including form fields for deal metadata and real-time status polling.
 
 ---
 
-## API Contract (What Your Backend Should Implement)
+## What's Changing
 
-The frontend expects these endpoints:
+### Current State
+- Upload only sends the PDF file
+- No deal name or borrower fields
+- Simulates extraction progress with timeouts
+- Response type doesn't match backend
 
+### New State  
+- Upload form collects deal name and borrower
+- Sends `file`, `deal_name`, and `borrower` via multipart/form-data
+- Polls status endpoint every 20 seconds for real extraction progress
+- Updated response types to match backend exactly
+
+---
+
+## Type Definitions
+
+**UploadResponse** (from POST /upload):
+```text
+{
+  deal_id: string
+  deal_name: string
+  status: "processing"        // Always "processing" on success
+  message: string
+}
 ```
-POST /api/deals/upload          → Upload PDF, returns { deal_id, status }
-GET  /api/deals                 → Returns [{ id, name, borrower, upload_date }]
-GET  /api/deals/{id}            → Returns { id, name, borrower, upload_date }
-GET  /api/ontology/questions    → Returns [{ id, text, category, subcategory, target_attribute, answer_type }]
-GET  /api/deals/{id}/answers    → Returns [{ question_id, answer, has_provenance }]
-GET  /api/deals/{id}/provenance/{attribute} → Returns { source_text, page_number, section, confidence }
-POST /api/deals/{id}/qa         → Body: { question } → Returns { answer, evidence: [] }
+
+**DealStatus** (from GET /{id}/status):
+```text
+{
+  deal_id: string
+  status: "pending" | "extracting" | "storing" | "complete" | "error"
+  progress: number            // 0-100
+  current_step: string | null
+  error: string | null
+}
 ```
 
 ---
 
-## Technical Implementation
+## Changes Required
 
-### State Management
-- TanStack Query for API data fetching and caching
-- React state for UI interactions (search, filters, active tab)
+### 1. Update Types (`src/types/index.ts`)
+- Update `UploadResponse` with `deal_name`, fixed `status: "processing"`, and `message`
+- Add new `DealStatus` type with the full status enum
 
-### Performance for 471+ Questions
-- React-window or similar for virtualized list rendering
-- Debounced search input
-- Lazy loading of provenance data
+### 2. Update API Client (`src/api/client.ts`)
+- Modify `uploadDeal` to accept `file`, `dealName`, and `borrower` parameters
+- Append `deal_name` and `borrower` fields to FormData
+- Add new `getDealStatus(dealId: string)` function for polling
 
-### Components Structure
-```
-src/
-├── pages/
-│   ├── DealsPage.tsx
-│   ├── DealDetailPage.tsx
-│   └── UploadPage.tsx
-├── components/
-│   ├── OntologyBrowser/
-│   │   ├── CategoryTabs.tsx
-│   │   ├── QuestionList.tsx (virtualized)
-│   │   ├── QuestionRow.tsx
-│   │   └── SearchFilter.tsx
-│   ├── ProvenancePanel.tsx
-│   ├── QAInterface.tsx
-│   └── UploadDropzone.tsx
-├── api/
-│   └── client.ts (API functions)
-└── types/
-    └── index.ts (TypeScript interfaces)
-```
+### 3. Update Upload Page (`src/pages/UploadPage.tsx`)
+- Add form fields for deal name and borrower (required inputs)
+- Pass metadata to upload function
+- Implement 20-second polling after successful upload
+- Update UI based on real `progress` and `current_step` values
+- Handle completion (redirect) and error states
+
+### 4. Update UploadDropzone (`src/components/UploadDropzone.tsx`)
+- Accept `progress` and `currentStep` as props for dynamic display
+- Show real progress percentage from polling
+- Display current step message from backend
 
 ---
 
-## Pages & Routes
+## UI Flow After Changes
 
-| Route | Page | Description |
-|-------|------|-------------|
-| `/` | Deals List | View all uploaded deals |
-| `/upload` | Upload | Upload new PDF |
-| `/deals/:id` | Deal Detail | Ontology browser + Q&A |
+1. User enters deal name and borrower in form fields
+2. User drops or selects PDF file
+3. Frontend uploads file + metadata to backend
+4. Shows "Uploading..." with spinner
+5. On success (status: "processing"), begins polling every 20 seconds
+6. Progress bar updates based on real `progress` value (0-100)
+7. Shows `current_step` message when available
+8. On status "complete", redirects to deal detail page
+9. On status "error", displays the error message from backend
 
 ---
 
-## Success Criteria
+## Files to Modify
 
-✅ Clean, professional UI suitable for legal/financial use  
-✅ Handles 471+ questions with smooth scrolling and search  
-✅ Clear provenance display for any extracted answer  
-✅ Q&A interface ready to connect to backend  
-✅ Fully typed API client ready for backend integration
+| File | Changes |
+|------|---------|
+| `src/types/index.ts` | Update `UploadResponse`, add `DealStatus` type |
+| `src/api/client.ts` | Update `uploadDeal` params, add `getDealStatus` |
+| `src/pages/UploadPage.tsx` | Add form fields, implement 20-second polling |
+| `src/components/UploadDropzone.tsx` | Accept progress/step props for dynamic display |
 
