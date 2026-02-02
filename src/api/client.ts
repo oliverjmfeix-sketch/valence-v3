@@ -1,4 +1,4 @@
-import type { Deal, OntologyQuestion, DealAnswer, Provenance, QAResponse, UploadResponse } from '@/types';
+import type { Deal, OntologyQuestion, DealAnswer, Provenance, QAResponse, UploadResponse, DealStatus } from '@/types';
 
 const API_URL = 'https://valencev3-production.up.railway.app';
 
@@ -19,9 +19,11 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 // Deals
-export async function uploadDeal(file: File): Promise<UploadResponse> {
+export async function uploadDeal(file: File, dealName: string, borrower: string): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('deal_name', dealName);
+  formData.append('borrower', borrower);
 
   const response = await fetch(`${API_URL}/api/deals/upload`, {
     method: 'POST',
@@ -33,6 +35,10 @@ export async function uploadDeal(file: File): Promise<UploadResponse> {
   }
 
   return response.json();
+}
+
+export async function getDealStatus(dealId: string): Promise<DealStatus> {
+  return fetchAPI<DealStatus>(`/api/deals/${dealId}/status`);
 }
 
 export async function getDeals(): Promise<Deal[]> {

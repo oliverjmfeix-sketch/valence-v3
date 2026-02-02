@@ -8,16 +8,28 @@ interface UploadDropzoneProps {
   onUpload: (file: File) => Promise<void>;
   status: UploadStatus;
   error?: string;
+  progress?: number;
+  currentStep?: string | null;
+  disabled?: boolean;
 }
 
-export function UploadDropzone({ onUpload, status, error }: UploadDropzoneProps) {
+export function UploadDropzone({ 
+  onUpload, 
+  status, 
+  error, 
+  progress = 0, 
+  currentStep,
+  disabled = false 
+}: UploadDropzoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragOver(true);
-  }, []);
+    if (!disabled) {
+      setIsDragOver(true);
+    }
+  }, [disabled]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -29,24 +41,28 @@ export function UploadDropzone({ onUpload, status, error }: UploadDropzoneProps)
       e.preventDefault();
       setIsDragOver(false);
 
+      if (disabled) return;
+
       const file = e.dataTransfer.files[0];
       if (file && file.type === 'application/pdf') {
         setFileName(file.name);
         await onUpload(file);
       }
     },
-    [onUpload]
+    [onUpload, disabled]
   );
 
   const handleFileSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
+      
       const file = e.target.files?.[0];
       if (file) {
         setFileName(file.name);
         await onUpload(file);
       }
     },
-    [onUpload]
+    [onUpload, disabled]
   );
 
   const getStatusContent = () => {
@@ -67,8 +83,14 @@ export function UploadDropzone({ onUpload, status, error }: UploadDropzoneProps)
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
             <div className="text-center">
               <p className="font-medium">Extracting primitives...</p>
-              <p className="text-sm text-muted-foreground">Analyzing legal document structure</p>
-              <Progress value={66} className="mt-2 w-48" />
+              {currentStep && (
+                <p className="text-sm text-muted-foreground">{currentStep}</p>
+              )}
+              {!currentStep && (
+                <p className="text-sm text-muted-foreground">Analyzing legal document structure</p>
+              )}
+              <Progress value={progress} className="mt-2 w-48" />
+              <p className="text-xs text-muted-foreground mt-1">{progress}% complete</p>
             </div>
           </div>
         );
@@ -97,7 +119,8 @@ export function UploadDropzone({ onUpload, status, error }: UploadDropzoneProps)
           <>
             <div className={cn(
               'rounded-full p-4 transition-colors',
-              isDragOver ? 'bg-primary/20' : 'bg-secondary'
+              isDragOver ? 'bg-primary/20' : 'bg-secondary',
+              disabled && 'opacity-50'
             )}>
               <Upload className={cn(
                 'h-8 w-8 transition-colors',
@@ -105,10 +128,14 @@ export function UploadDropzone({ onUpload, status, error }: UploadDropzoneProps)
               )} />
             </div>
             <div className="text-center">
-              <p className="font-medium">
-                {isDragOver ? 'Drop your PDF here' : 'Drag and drop a PDF'}
+              <p className={cn('font-medium', disabled && 'text-muted-foreground')}>
+                {disabled 
+                  ? 'Enter deal name and borrower first'
+                  : isDragOver 
+                    ? 'Drop your PDF here' 
+                    : 'Drag and drop a PDF'}
               </p>
-              <p className="text-sm text-muted-foreground">or click to browse</p>
+              {!disabled && <p className="text-sm text-muted-foreground">or click to browse</p>}
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <FileText className="h-4 w-4" />
@@ -119,7 +146,7 @@ export function UploadDropzone({ onUpload, status, error }: UploadDropzoneProps)
     }
   };
 
-  const isInteractive = status === 'idle' || status === 'error';
+  const isInteractive = (status === 'idle' || status === 'error') && !disabled;
 
   return (
     <div
@@ -130,7 +157,8 @@ export function UploadDropzone({ onUpload, status, error }: UploadDropzoneProps)
         'relative flex min-h-[300px] flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed p-8 transition-colors',
         isDragOver && 'border-primary bg-primary/5',
         isInteractive && 'cursor-pointer hover:border-primary/50 hover:bg-secondary/50',
-        status === 'error' && 'border-destructive/50'
+        status === 'error' && 'border-destructive/50',
+        disabled && status === 'idle' && 'opacity-60 cursor-not-allowed'
       )}
     >
       {getStatusContent()}

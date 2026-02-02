@@ -40,7 +40,17 @@ export interface QAResponse {
 
 export interface UploadResponse {
   deal_id: string;
-  status: 'processing' | 'complete' | 'error';
+  deal_name: string;
+  status: 'processing';
+  message: string;
+}
+
+export interface DealStatus {
+  deal_id: string;
+  status: 'pending' | 'extracting' | 'storing' | 'complete' | 'error';
+  progress: number;
+  current_step: string | null;
+  error: string | null;
 }
 
 export type UploadStatus = 'idle' | 'uploading' | 'extracting' | 'complete' | 'error';
