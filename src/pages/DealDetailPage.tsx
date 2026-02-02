@@ -73,10 +73,12 @@ export default function DealDetailPage() {
                 <Building2 className="h-4 w-4" />
                 {deal.borrower}
               </span>
-              <span className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4" />
-                {format(new Date(deal.upload_date), 'MMMM d, yyyy')}
-              </span>
+              {deal.upload_date && !isNaN(new Date(deal.upload_date).getTime()) && (
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4" />
+                  {format(new Date(deal.upload_date), 'MMMM d, yyyy')}
+                </span>
+              )}
             </div>
           </div>
         </div>
