@@ -1,10 +1,10 @@
 // Core domain types
 
 export interface Deal {
-  id: string;
-  name: string;
-  borrower: string;
-  upload_date: string;
+  deal_id: string;
+  deal_name: string;
+  borrower?: string;
+  upload_date?: string;
 }
 
 export interface OntologyQuestion {

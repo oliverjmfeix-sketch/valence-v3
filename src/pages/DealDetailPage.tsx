@@ -67,12 +67,14 @@ export default function DealDetailPage() {
 
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{deal.name}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{deal.deal_name}</h1>
             <div className="flex items-center gap-4 mt-2 text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <Building2 className="h-4 w-4" />
-                {deal.borrower}
-              </span>
+              {deal.borrower && (
+                <span className="flex items-center gap-1.5">
+                  <Building2 className="h-4 w-4" />
+                  {deal.borrower}
+                </span>
+              )}
               {deal.upload_date && !isNaN(new Date(deal.upload_date).getTime()) && (
                 <span className="flex items-center gap-1.5">
                   <Calendar className="h-4 w-4" />

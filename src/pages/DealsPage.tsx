@@ -25,8 +25,8 @@ export default function DealsPage() {
   });
 
   const filteredDeals = deals?.filter((deal) =>
-    deal.name.toLowerCase().includes(search.toLowerCase()) ||
-    deal.borrower.toLowerCase().includes(search.toLowerCase())
+    deal.deal_name.toLowerCase().includes(search.toLowerCase()) ||
+    (deal.borrower?.toLowerCase().includes(search.toLowerCase()) ?? false)
   );
 
   return (
@@ -90,14 +90,16 @@ export default function DealsPage() {
             <TableBody>
               {filteredDeals?.map((deal) => (
                 <TableRow
-                  key={deal.id}
+                  key={deal.deal_id}
                   className="cursor-pointer"
-                  onClick={() => navigate(`/deals/${deal.id}`)}
+                  onClick={() => navigate(`/deals/${deal.deal_id}`)}
                 >
-                  <TableCell className="font-medium">{deal.name}</TableCell>
-                  <TableCell>{deal.borrower}</TableCell>
+                  <TableCell className="font-medium">{deal.deal_name}</TableCell>
+                  <TableCell>{deal.borrower ?? '—'}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {format(new Date(deal.upload_date), 'MMM d, yyyy')}
+                    {deal.upload_date && !isNaN(new Date(deal.upload_date).getTime())
+                      ? format(new Date(deal.upload_date), 'MMM d, yyyy')
+                      : '—'}
                   </TableCell>
                 </TableRow>
               ))}
