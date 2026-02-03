@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Search, Plus, Loader2, Building2, Calendar } from 'lucide-react';
-import { getDeals, getDealStatus } from '@/api/client';
+import { FileText, Search, Plus, Loader2, Building2, Calendar, Trash2 } from 'lucide-react';
+import { getDeals, getDealStatus, deleteDeal } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,11 +15,28 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import type { Deal, DealStatus } from '@/types';
 
 // Component to fetch and display status for a deal
-function DealStatusCell({ dealId }: { dealId: string }) {
+function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusChange?: (status: string) => void }) {
   const { data: status } = useQuery<DealStatus>({
     queryKey: ['deal-status', dealId],
     queryFn: () => getDealStatus(dealId),
@@ -32,16 +49,86 @@ function DealStatusCell({ dealId }: { dealId: string }) {
     },
   });
 
+  // Notify parent of status changes
+  if (onStatusChange && status?.status) {
+    onStatusChange(status.status);
+  }
+
   return <DealStatusBadge status={status?.status || 'pending'} />;
+}
+
+// Delete button component with tooltip
+function DealDeleteButton({ 
+  deal, 
+  canDelete, 
+  isDeleting,
+  onDelete 
+}: { 
+  deal: Deal; 
+  canDelete: boolean;
+  isDeleting: boolean;
+  onDelete: (deal: Deal) => void;
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(deal);
+            }}
+            disabled={!canDelete || isDeleting}
+            aria-label="Delete deal"
+          >
+            {isDeleting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {!canDelete 
+            ? "Cannot delete while extraction is in progress" 
+            : "Delete deal"
+          }
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 export default function DealsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [search, setSearch] = useState('');
+  const [deletingDeal, setDeletingDeal] = useState<Deal | null>(null);
+  const [dealStatuses, setDealStatuses] = useState<Record<string, string>>({});
 
   const { data: deals, isLoading, error } = useQuery({
     queryKey: ['deals'],
     queryFn: getDeals,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (dealId: string) => deleteDeal(dealId),
+    onSuccess: () => {
+      toast({ title: "Deal deleted successfully" });
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+      setDeletingDeal(null);
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Failed to delete deal",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
   });
 
   const filteredDeals = deals?.filter((deal) =>
@@ -50,6 +137,26 @@ export default function DealsPage() {
   );
 
   const useCards = !filteredDeals || filteredDeals.length < 10;
+
+  const handleStatusChange = (dealId: string, status: string) => {
+    setDealStatuses(prev => ({ ...prev, [dealId]: status }));
+  };
+
+  const canDeleteDeal = (dealId: string) => {
+    const status = dealStatuses[dealId];
+    const isProcessing = status === 'pending' || status === 'extracting' || status === 'storing';
+    return !isProcessing;
+  };
+
+  const handleDeleteClick = (deal: Deal) => {
+    setDeletingDeal(deal);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deletingDeal) {
+      deleteMutation.mutate(deletingDeal.deal_id);
+    }
+  };
 
   return (
     <div className="container py-8">
@@ -117,7 +224,18 @@ export default function DealsPage() {
                   <h3 className="font-semibold text-lg leading-tight line-clamp-2">
                     {deal.deal_name}
                   </h3>
-                  <DealStatusCell dealId={deal.deal_id} />
+                  <div className="flex items-center gap-1 shrink-0">
+                    <DealStatusCell 
+                      dealId={deal.deal_id} 
+                      onStatusChange={(status) => handleStatusChange(deal.deal_id, status)}
+                    />
+                    <DealDeleteButton
+                      deal={deal}
+                      canDelete={canDeleteDeal(deal.deal_id)}
+                      isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
+                      onDelete={handleDeleteClick}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-1.5 text-sm text-muted-foreground">
                   {deal.borrower && (
@@ -152,7 +270,8 @@ export default function DealsPage() {
                 <TableHead>Deal Name</TableHead>
                 <TableHead>Borrower</TableHead>
                 <TableHead>Date</TableHead>
-                <TableHead className="text-right">Status</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -171,8 +290,19 @@ export default function DealsPage() {
                       return format(new Date(dateStr), 'MMM d, yyyy');
                     })()}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <DealStatusCell dealId={deal.deal_id} />
+                  <TableCell>
+                    <DealStatusCell 
+                      dealId={deal.deal_id}
+                      onStatusChange={(status) => handleStatusChange(deal.deal_id, status)}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <DealDeleteButton
+                      deal={deal}
+                      canDelete={canDeleteDeal(deal.deal_id)}
+                      isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
+                      onDelete={handleDeleteClick}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
@@ -180,6 +310,35 @@ export default function DealsPage() {
           </Table>
         </Card>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletingDeal} onOpenChange={(open) => !open && setDeletingDeal(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Deal?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{deletingDeal?.deal_name}" and all extracted data. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
