@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Search, Plus, Loader2, Building2, Calendar, Trash2 } from 'lucide-react';
-import { getDeals, getDealStatus, deleteDeal } from '@/api/client';
+import { FileText, Search, Plus, Loader2, Building2, Calendar } from 'lucide-react';
+import { getDeals, deleteDeal } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { DealStatusBadge } from '@/components/deals/DealStatusBadge';
+import { DealRowActions } from '@/components/deals/DealRowActions';
 import {
   Table,
   TableBody,
@@ -25,86 +25,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+// Tooltip used inside DealRowActions
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import type { Deal, DealStatus } from '@/types';
 
-// Component to fetch and display status for a deal
-function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusChange?: (dealId: string, status: string) => void }) {
-  const { data: status } = useQuery<DealStatus>({
-    queryKey: ['deal-status', dealId],
-    queryFn: () => getDealStatus(dealId),
-    refetchInterval: (query) => {
-      const s = query.state.data?.status;
-      if (s === 'pending' || s === 'extracting' || s === 'storing') {
-        return 5000;
-      }
-      return false;
-    },
-  });
-
-  // Use useEffect to notify parent of status changes
-  useEffect(() => {
-    if (onStatusChange && status?.status) {
-      onStatusChange(dealId, status.status);
-    }
-  }, [dealId, status?.status, onStatusChange]);
-
-  return <DealStatusBadge status={status?.status || 'pending'} />;
-}
-
-// Delete button component with tooltip
-function DealDeleteButton({ 
-  deal, 
-  canDelete, 
-  statusKnown,
-  isDeleting,
-  onDelete 
-}: { 
-  deal: Deal; 
-  canDelete: boolean;
-  statusKnown: boolean;
-  isDeleting: boolean;
-  onDelete: (deal: Deal) => void;
-}) {
-  const getTooltipText = () => {
-    if (!statusKnown) return "Loading status…";
-    if (!canDelete) return "Cannot delete while extraction is in progress";
-    return "Delete deal";
-  };
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(deal);
-          }}
-          disabled={!canDelete || isDeleting}
-          aria-label="Delete deal"
-        >
-          {isDeleting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Trash2 className="h-4 w-4" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {getTooltipText()}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
+// Status+Delete actions are now handled per-row in DealRowActions to avoid
+// re-rendering the whole page on every status poll.
 
 export default function DealsPage() {
   const navigate = useNavigate();
@@ -112,7 +39,6 @@ export default function DealsPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState('');
   const [deletingDeal, setDeletingDeal] = useState<Deal | null>(null);
-  const [dealStatuses, setDealStatuses] = useState<Record<string, string>>({});
 
   const { data: deals, isLoading, error } = useQuery({
     queryKey: ['deals'],
@@ -142,19 +68,7 @@ export default function DealsPage() {
 
   const useCards = !filteredDeals || filteredDeals.length < 10;
 
-  const handleStatusChange = useCallback((dealId: string, status: string) => {
-    setDealStatuses(prev => prev[dealId] === status ? prev : { ...prev, [dealId]: status });
-  }, []);
-
-  const canDeleteDeal = (dealId: string) => {
-    const status = dealStatuses[dealId];
-    // Only allow delete when status is explicitly complete or error
-    return status === 'complete' || status === 'error';
-  };
-
-  const isStatusKnown = (dealId: string) => {
-    return dealStatuses[dealId] !== undefined;
-  };
+  // Delete eligibility is computed inside DealRowActions using deal status query cache.
 
   const handleDeleteClick = (deal: Deal) => {
     setDeletingDeal(deal);
@@ -232,19 +146,11 @@ export default function DealsPage() {
                   <h3 className="font-semibold text-lg leading-tight line-clamp-2">
                     {deal.deal_name}
                   </h3>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <DealStatusCell 
-                      dealId={deal.deal_id} 
-                      onStatusChange={handleStatusChange}
-                    />
-                    <DealDeleteButton
-                      deal={deal}
-                      canDelete={canDeleteDeal(deal.deal_id)}
-                      statusKnown={isStatusKnown(deal.deal_id)}
-                      isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
-                      onDelete={handleDeleteClick}
-                    />
-                  </div>
+                  <DealRowActions
+                    deal={deal}
+                    isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
+                    onDelete={handleDeleteClick}
+                  />
                 </div>
                 <div className="space-y-1.5 text-sm text-muted-foreground">
                   {deal.borrower && (
@@ -299,17 +205,9 @@ export default function DealsPage() {
                       return format(new Date(dateStr), 'MMM d, yyyy');
                     })()}
                   </TableCell>
-                  <TableCell>
-                    <DealStatusCell 
-                      dealId={deal.deal_id}
-                      onStatusChange={handleStatusChange}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <DealDeleteButton
+                  <TableCell colSpan={2}>
+                    <DealRowActions
                       deal={deal}
-                      canDelete={canDeleteDeal(deal.deal_id)}
-                      statusKnown={isStatusKnown(deal.deal_id)}
                       isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
                       onDelete={handleDeleteClick}
                     />
