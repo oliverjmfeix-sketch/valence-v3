@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Search, Plus, Loader2, Building2, Calendar, Trash2 } from 'lucide-react';
@@ -28,7 +28,6 @@ import {
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
@@ -36,7 +35,7 @@ import { format } from 'date-fns';
 import type { Deal, DealStatus } from '@/types';
 
 // Component to fetch and display status for a deal
-function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusChange?: (status: string) => void }) {
+function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusChange?: (dealId: string, status: string) => void }) {
   const { data: status } = useQuery<DealStatus>({
     queryKey: ['deal-status', dealId],
     queryFn: () => getDealStatus(dealId),
@@ -52,9 +51,9 @@ function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusCh
   // Use useEffect to notify parent of status changes
   useEffect(() => {
     if (onStatusChange && status?.status) {
-      onStatusChange(status.status);
+      onStatusChange(dealId, status.status);
     }
-  }, [status?.status, onStatusChange]);
+  }, [dealId, status?.status, onStatusChange]);
 
   return <DealStatusBadge status={status?.status || 'pending'} />;
 }
@@ -63,14 +62,22 @@ function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusCh
 function DealDeleteButton({ 
   deal, 
   canDelete, 
+  statusKnown,
   isDeleting,
   onDelete 
 }: { 
   deal: Deal; 
   canDelete: boolean;
+  statusKnown: boolean;
   isDeleting: boolean;
   onDelete: (deal: Deal) => void;
 }) {
+  const getTooltipText = () => {
+    if (!statusKnown) return "Loading status…";
+    if (!canDelete) return "Cannot delete while extraction is in progress";
+    return "Delete deal";
+  };
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -93,10 +100,7 @@ function DealDeleteButton({
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        {!canDelete 
-          ? "Cannot delete while extraction is in progress" 
-          : "Delete deal"
-        }
+        {getTooltipText()}
       </TooltipContent>
     </Tooltip>
   );
@@ -138,14 +142,18 @@ export default function DealsPage() {
 
   const useCards = !filteredDeals || filteredDeals.length < 10;
 
-  const handleStatusChange = (dealId: string, status: string) => {
-    setDealStatuses(prev => ({ ...prev, [dealId]: status }));
-  };
+  const handleStatusChange = useCallback((dealId: string, status: string) => {
+    setDealStatuses(prev => prev[dealId] === status ? prev : { ...prev, [dealId]: status });
+  }, []);
 
   const canDeleteDeal = (dealId: string) => {
     const status = dealStatuses[dealId];
-    const isProcessing = status === 'pending' || status === 'extracting' || status === 'storing';
-    return !isProcessing;
+    // Only allow delete when status is explicitly complete or error
+    return status === 'complete' || status === 'error';
+  };
+
+  const isStatusKnown = (dealId: string) => {
+    return dealStatuses[dealId] !== undefined;
   };
 
   const handleDeleteClick = (deal: Deal) => {
@@ -227,11 +235,12 @@ export default function DealsPage() {
                   <div className="flex items-center gap-1 shrink-0">
                     <DealStatusCell 
                       dealId={deal.deal_id} 
-                      onStatusChange={(status) => handleStatusChange(deal.deal_id, status)}
+                      onStatusChange={handleStatusChange}
                     />
                     <DealDeleteButton
                       deal={deal}
                       canDelete={canDeleteDeal(deal.deal_id)}
+                      statusKnown={isStatusKnown(deal.deal_id)}
                       isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
                       onDelete={handleDeleteClick}
                     />
@@ -293,13 +302,14 @@ export default function DealsPage() {
                   <TableCell>
                     <DealStatusCell 
                       dealId={deal.deal_id}
-                      onStatusChange={(status) => handleStatusChange(deal.deal_id, status)}
+                      onStatusChange={handleStatusChange}
                     />
                   </TableCell>
                   <TableCell>
                     <DealDeleteButton
                       deal={deal}
                       canDelete={canDeleteDeal(deal.deal_id)}
+                      statusKnown={isStatusKnown(deal.deal_id)}
                       isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
                       onDelete={handleDeleteClick}
                     />
