@@ -7,6 +7,7 @@ interface DealStatusBadgeProps {
   status: DealStatus['status'];
   className?: string;
   showLabel?: boolean;
+  animate?: boolean;
 }
 
 const statusConfig = {
@@ -39,10 +40,10 @@ const statusConfig = {
   },
 };
 
-export function DealStatusBadge({ status, className, showLabel = true }: DealStatusBadgeProps) {
+export function DealStatusBadge({ status, className, showLabel = true, animate = true }: DealStatusBadgeProps) {
   const config = statusConfig[status] || statusConfig.pending;
   const Icon = config.icon;
-  const iconClassName = 'iconClassName' in config ? config.iconClassName : undefined;
+  const iconClassName = animate && 'iconClassName' in config ? config.iconClassName : undefined;
 
   return (
     <Badge 

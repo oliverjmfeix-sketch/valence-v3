@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Search, Plus, Loader2, Building2, Calendar } from 'lucide-react';
+import { FileText, Search, Plus, Loader2, Building2, Calendar, RefreshCw } from 'lucide-react';
 import { getDeals, deleteDeal } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -25,20 +25,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-// Tooltip used inside DealRowActions
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import type { Deal, DealStatus } from '@/types';
-
-// Status+Delete actions are now handled per-row in DealRowActions to avoid
-// re-rendering the whole page on every status poll.
 
 export default function DealsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [search, setSearch] = useState('');
-  const [deletingDeal, setDeletingDeal] = useState<Deal | null>(null);
+  const [deleting, setDeleting] = useState<{ deal: Deal; status?: DealStatus["status"] } | null>(null);
+
+  // DEV-only logging for state changes
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.log("deleting changed:", deleting);
+    }
+  }, [deleting]);
 
   const { data: deals, isLoading, error } = useQuery({
     queryKey: ['deals'],
@@ -50,7 +53,7 @@ export default function DealsPage() {
     onSuccess: () => {
       toast({ title: "Deal deleted successfully" });
       queryClient.invalidateQueries({ queryKey: ['deals'] });
-      setDeletingDeal(null);
+      setDeleting(null);
     },
     onError: (error: Error) => {
       toast({ 
@@ -68,17 +71,25 @@ export default function DealsPage() {
 
   const useCards = !filteredDeals || filteredDeals.length < 10;
 
-  // Delete eligibility is computed inside DealRowActions using deal status query cache.
-
-  const handleDeleteClick = (deal: Deal) => {
-    setDeletingDeal(deal);
+  const handleDeleteClick = (deal: Deal, status?: DealStatus["status"]) => {
+    if (import.meta.env.DEV) {
+      console.log("handleDeleteClick called:", deal, "status:", status);
+    }
+    setDeleting({ deal, status });
   };
 
   const handleConfirmDelete = () => {
-    if (deletingDeal) {
-      deleteMutation.mutate(deletingDeal.deal_id);
+    if (deleting) {
+      deleteMutation.mutate(deleting.deal.deal_id);
     }
   };
+
+  const handleRefreshStatuses = () => {
+    queryClient.invalidateQueries({ queryKey: ['deal-status'] });
+    toast({ title: "Refreshing statuses..." });
+  };
+
+  const isProcessing = deleting?.status === 'pending' || deleting?.status === 'extracting' || deleting?.status === 'storing';
 
   return (
     <div className="container py-8">
@@ -93,8 +104,8 @@ export default function DealsPage() {
         </Button>
       </div>
 
-      <div className="mb-6">
-        <div className="relative max-w-md">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
@@ -103,6 +114,10 @@ export default function DealsPage() {
             className="pl-10"
           />
         </div>
+        <Button variant="outline" size="sm" onClick={handleRefreshStatuses}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh statuses
+        </Button>
       </div>
 
       {isLoading ? (
@@ -133,7 +148,6 @@ export default function DealsPage() {
           </CardContent>
         </Card>
       ) : useCards ? (
-        // Card grid for fewer deals
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredDeals?.map((deal) => (
             <Card
@@ -148,7 +162,7 @@ export default function DealsPage() {
                   </h3>
                   <DealRowActions
                     deal={deal}
-                    isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
+                    isDeleting={deleteMutation.isPending && deleting?.deal.deal_id === deal.deal_id}
                     onDelete={handleDeleteClick}
                   />
                 </div>
@@ -177,7 +191,6 @@ export default function DealsPage() {
           ))}
         </div>
       ) : (
-        // Table for many deals
         <Card>
           <Table>
             <TableHeader>
@@ -208,7 +221,7 @@ export default function DealsPage() {
                   <TableCell colSpan={2}>
                     <DealRowActions
                       deal={deal}
-                      isDeleting={deleteMutation.isPending && deletingDeal?.deal_id === deal.deal_id}
+                      isDeleting={deleteMutation.isPending && deleting?.deal.deal_id === deal.deal_id}
                       onDelete={handleDeleteClick}
                     />
                   </TableCell>
@@ -220,12 +233,24 @@ export default function DealsPage() {
       )}
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!deletingDeal} onOpenChange={(open) => !open && setDeletingDeal(null)}>
+      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Deal?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete "{deletingDeal?.deal_name}" and all extracted data. This cannot be undone.
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                This will permanently delete "{deleting?.deal.deal_name}" and all extracted data. This cannot be undone.
+              </span>
+              {isProcessing && (
+                <span className="block text-warning font-medium">
+                  ⚠️ This deal is still processing. Deleting it may fail or leave background processing running.
+                </span>
+              )}
+              {deleting?.status === undefined && (
+                <span className="block text-muted-foreground text-sm">
+                  Status is still loading; deletion may fail if processing is in progress.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
