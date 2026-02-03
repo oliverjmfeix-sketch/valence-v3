@@ -17,7 +17,7 @@ export function CategoryNav({
 }: CategoryNavProps) {
   return (
     <ScrollArea className={cn('h-full', className)}>
-      <nav className="space-y-1 p-2">
+      <nav className="space-y-1 p-3">
         {categories.map((category) => {
           const isActive = category.id === activeCategory;
           const completionPct = category.questionCount > 0 
@@ -29,16 +29,16 @@ export function CategoryNav({
               key={category.id}
               onClick={() => onCategoryChange(category.id)}
               className={cn(
-                'w-full flex items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors',
+                'w-full flex items-start gap-3 rounded-lg px-3 py-3 text-left transition-all',
                 isActive
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-secondary text-foreground/80 hover:text-foreground'
+                  ? 'bg-accent text-accent-foreground shadow-sm'
+                  : 'hover:bg-secondary/80 text-foreground/80 hover:text-foreground'
               )}
             >
               {/* Category code badge */}
               <span 
                 className={cn(
-                  'flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs font-semibold',
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-semibold transition-colors',
                   isActive
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted text-muted-foreground'
@@ -48,26 +48,35 @@ export function CategoryNav({
               </span>
               
               <div className="flex-1 min-w-0">
+                {/* Category name - allow wrapping */}
                 <p className={cn(
-                  'text-sm font-medium truncate',
+                  'text-sm font-medium leading-snug',
                   isActive && 'text-foreground'
                 )}>
                   {category.name}
                 </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                
+                {/* Answer count */}
+                <p className="text-xs text-muted-foreground mt-1">
                   {category.answeredCount}/{category.questionCount} answered
                 </p>
-              </div>
-
-              {/* Completion indicator */}
-              {category.answeredCount > 0 && (
-                <div className="shrink-0 w-10 h-1.5 bg-muted rounded-full overflow-hidden mt-2">
+                
+                {/* Progress bar - always visible */}
+                <div className={cn(
+                  'w-full h-1 rounded-full overflow-hidden mt-1.5',
+                  isActive ? 'bg-accent-foreground/20' : 'bg-muted'
+                )}>
                   <div 
-                    className="h-full bg-accent transition-all"
-                    style={{ width: `${completionPct}%` }}
+                    className={cn(
+                      'h-full transition-all',
+                      completionPct > 0 
+                        ? isActive ? 'bg-primary' : 'bg-accent'
+                        : 'bg-transparent'
+                    )}
+                    style={{ width: `${Math.max(completionPct, 0)}%` }}
                   />
                 </div>
-              )}
+              </div>
             </button>
           );
         })}

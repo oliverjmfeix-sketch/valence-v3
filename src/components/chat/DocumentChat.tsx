@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Send, Loader2, MessageSquare, Lightbulb, FileText } from 'lucide-react';
+import { Send, Loader2, MessageSquare, Lightbulb, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -157,8 +157,12 @@ export function DocumentChat({ dealId, className }: DocumentChatProps) {
 
         {/* Error */}
         {mutation.isError && (
-          <div className="mx-4 mb-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
-            Failed to get answer. Please try again.
+          <div className="mx-4 mb-2 rounded-lg bg-destructive/10 border border-destructive/20 p-3 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <p className="font-medium text-destructive">Failed to get answer</p>
+              <p className="text-muted-foreground mt-0.5">Please try again or rephrase your question.</p>
+            </div>
           </div>
         )}
 

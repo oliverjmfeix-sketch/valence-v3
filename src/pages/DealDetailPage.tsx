@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Building2, Calendar, Loader2 } from 'lucide-react';
+import { ArrowLeft, Building2, Calendar, Loader2, FileSearch, AlertCircle, RefreshCw } from 'lucide-react';
 import { getDeal, getRPProvision, getOntologyQuestionsRP } from '@/api/client';
 import { useDealStatusPolling } from '@/hooks/useDealStatus';
 import { Button } from '@/components/ui/button';
@@ -13,8 +13,69 @@ import { RiskPatternCard, RiskPatternsSection } from '@/components/analysis/Risk
 import { DocumentChat } from '@/components/chat/DocumentChat';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 import type { Category, OntologyQuestion, RPProvision } from '@/types';
 import { getAnswerForQuestion } from '@/hooks/useRPProvision';
+
+// Status border colors
+const statusBorderColors: Record<string, string> = {
+  pending: 'border-t-[hsl(var(--status-pending))]',
+  extracting: 'border-t-[hsl(var(--status-extracting))]',
+  storing: 'border-t-[hsl(var(--status-extracting))]',
+  complete: 'border-t-[hsl(var(--status-complete))]',
+  error: 'border-t-[hsl(var(--status-error))]',
+};
+
+// Empty State Component
+function EmptyState({ 
+  status, 
+  onBack, 
+  onRetry 
+}: { 
+  status?: 'complete' | 'error' | 'pending' | 'extracting' | 'storing';
+  onBack: () => void;
+  onRetry?: () => void;
+}) {
+  const isError = status === 'error';
+  const Icon = isError ? AlertCircle : FileSearch;
+  
+  return (
+    <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center px-6">
+      <div className={cn(
+        "w-16 h-16 rounded-full flex items-center justify-center mb-4",
+        isError ? "bg-destructive/10" : "bg-muted"
+      )}>
+        <Icon className={cn(
+          "h-8 w-8",
+          isError ? "text-destructive" : "text-muted-foreground"
+        )} />
+      </div>
+      
+      <h3 className="text-lg font-semibold mb-2">
+        {isError ? 'Extraction Failed' : 'No Extracted Data Available'}
+      </h3>
+      
+      <p className="text-muted-foreground text-sm max-w-md mb-6">
+        {isError 
+          ? 'There was an error processing this document. Please try uploading it again or contact support if the issue persists.'
+          : 'Extraction may still be in progress, or this deal hasn\'t been fully processed yet.'}
+      </p>
+      
+      <div className="flex gap-3">
+        <Button variant="outline" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Deals
+        </Button>
+        {onRetry && isError && (
+          <Button onClick={onRetry}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function DealDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -29,7 +90,7 @@ export default function DealDetailPage() {
   });
 
   // Poll status during extraction
-  const { data: status, isProcessing, isComplete } = useDealStatusPolling(id);
+  const { data: status, isProcessing, isComplete, isError: statusIsError, hasError } = useDealStatusPolling(id);
 
   // Fetch ontology questions
   const { data: questionsResponse } = useQuery({
@@ -39,10 +100,16 @@ export default function DealDetailPage() {
   });
 
   // Fetch RP provision data
-  const { data: provision, isLoading: provisionLoading } = useQuery({
+  const { 
+    data: provision, 
+    isLoading: provisionLoading, 
+    isError: provisionError,
+    refetch: refetchProvision 
+  } = useQuery({
     queryKey: ['rp-provision', id],
     queryFn: () => getRPProvision(id!),
     enabled: !!id && isComplete,
+    retry: false, // Don't retry 404s
   });
 
   // Process questions into categories
@@ -54,7 +121,7 @@ export default function DealDetailPage() {
 
     questions.forEach((q) => {
       // Support both category_id and fallback to question_id prefix
-      const categoryId = q.category_id || q.question_id?.split('_')[0] || 'unknown';
+      const categoryId = q.category_id || q.question_id?.split('_').slice(0, 2).join('_') || 'unknown';
       const categoryName = q.category_name || categoryId;
       
       const existing = byCategory.get(categoryId) || [];
@@ -63,10 +130,12 @@ export default function DealDetailPage() {
 
       if (!seenCats.has(categoryId)) {
         seenCats.add(categoryId);
+        // Extract the letter code from categoryId (e.g., "rp_a" -> "A")
+        const codePart = categoryId.split('_')[1] || categoryId.charAt(0);
         cats.push({
           id: categoryId,
           name: categoryName,
-          code: categoryId.charAt(0).toUpperCase(),
+          code: codePart.charAt(0).toUpperCase(),
           questionCount: 0,
           answeredCount: 0,
         });
@@ -91,13 +160,23 @@ export default function DealDetailPage() {
   }, [questionsResponse, provision]);
 
   // Set initial active category
-  useMemo(() => {
+  useEffect(() => {
     if (categories.length > 0 && !activeCategory) {
       setActiveCategory(categories[0].id);
     }
   }, [categories, activeCategory]);
 
+  // Handle category change with smooth scrolling
+  const handleCategoryChange = (categoryId: string) => {
+    setActiveCategory(categoryId);
+    const element = document.getElementById(`category-${categoryId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   const isLoading = dealLoading;
+  const showEmptyState = isComplete && !provisionLoading && (!provision || provisionError);
 
   if (isLoading) {
     return (
@@ -124,8 +203,11 @@ export default function DealDetailPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
-      {/* Header */}
-      <div className="border-b bg-card px-6 py-4">
+      {/* Header with status-aware border */}
+      <div className={cn(
+        "border-b border-t-4 bg-card px-6 py-4",
+        status ? statusBorderColors[status.status] : 'border-t-transparent'
+      )}>
         <div className="container px-0">
           <Button variant="ghost" onClick={() => navigate('/')} className="-ml-2 mb-3" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -164,14 +246,20 @@ export default function DealDetailPage() {
         <div className="container py-8 max-w-2xl mx-auto">
           <ExtractionProgress status={status} />
         </div>
+      ) : showEmptyState ? (
+        <EmptyState 
+          status={hasError ? 'error' : status?.status}
+          onBack={() => navigate('/')}
+          onRetry={provisionError ? () => refetchProvision() : undefined}
+        />
       ) : (
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Sidebar - Category Navigation */}
-          <div className="w-56 border-r bg-sidebar shrink-0">
+          {/* Left Sidebar - Category Navigation (wider) */}
+          <div className="w-64 border-r bg-sidebar shrink-0">
             <CategoryNav
               categories={categories}
               activeCategory={activeCategory}
-              onCategoryChange={setActiveCategory}
+              onCategoryChange={handleCategoryChange}
               className="h-full"
             />
           </div>
@@ -248,8 +336,8 @@ export default function DealDetailPage() {
             </div>
           </ScrollArea>
 
-          {/* Right Panel - Document Chat */}
-          <div className="w-80 border-l shrink-0">
+          {/* Right Panel - Document Chat (responsive) */}
+          <div className="w-80 border-l shrink-0 hidden xl:block">
             <DocumentChat dealId={id!} className="h-full rounded-none border-0" />
           </div>
         </div>
