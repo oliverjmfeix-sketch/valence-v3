@@ -48,12 +48,12 @@ export function QuestionRow({ question, answer, onViewProvenance, style }: Quest
       className="flex items-center gap-4 border-b px-4 py-3 hover:bg-secondary/30 transition-colors"
     >
       <div className="flex-1 min-w-0">
-        <p className="text-sm leading-relaxed truncate" title={question.text}>
-          {question.text}
+        <p className="text-sm leading-relaxed truncate" title={question.question_text}>
+          {question.question_text}
         </p>
-        {question.subcategory && (
+        {question.category_name && (
           <p className="text-xs text-muted-foreground mt-0.5">
-            {question.subcategory}
+            {question.category_name}
           </p>
         )}
       </div>
@@ -66,7 +66,7 @@ export function QuestionRow({ question, answer, onViewProvenance, style }: Quest
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => onViewProvenance(question.target_attribute)}
+          onClick={() => onViewProvenance(question.target_attribute || question.question_id)}
           disabled={!answer?.has_provenance}
           className={cn(
             'h-8 gap-1.5',

@@ -33,7 +33,7 @@ function Row({
   };
 } & RowProps) {
   const question = questions[index];
-  const answer = answers.get(question.id);
+  const answer = answers.get(question.question_id);
 
   return (
     <QuestionRow

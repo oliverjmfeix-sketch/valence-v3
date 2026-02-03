@@ -10,6 +10,13 @@ interface OntologyBrowserProps {
   onViewProvenance: (attribute: string) => void;
 }
 
+// Helper to get legacy category from new category_id
+function getLegacyCategory(categoryId: string): string {
+  if (categoryId.startsWith('A') || categoryId.startsWith('B')) return 'mfn';
+  if (categoryId.startsWith('Z')) return 'pattern';
+  return 'rp';
+}
+
 const CATEGORY_CONFIG = {
   mfn: { label: 'MFN Provisions', order: 1 },
   rp: { label: 'Restricted Payments', order: 2 },
@@ -33,9 +40,11 @@ export function OntologyBrowser({ questions, answers, onViewProvenance }: Ontolo
     const grouped = new Map<string, OntologyQuestion[]>();
     const questionsArray = Array.isArray(questions) ? questions : [];
     questionsArray.forEach((q) => {
-      const existing = grouped.get(q.category) || [];
+      // Support both old 'category' field and new 'category_id' field
+      const category = (q as { category?: string }).category || getLegacyCategory(q.category_id || '');
+      const existing = grouped.get(category) || [];
       existing.push(q);
-      grouped.set(q.category, existing);
+      grouped.set(category, existing);
     });
     return grouped;
   }, [questions]);
@@ -61,9 +70,9 @@ export function OntologyBrowser({ questions, answers, onViewProvenance }: Ontolo
     const query = searchQuery.toLowerCase();
     return categoryQuestions.filter(
       (q) =>
-        q.text.toLowerCase().includes(query) ||
-        q.subcategory?.toLowerCase().includes(query) ||
-        q.target_attribute.toLowerCase().includes(query)
+        q.question_text.toLowerCase().includes(query) ||
+        q.category_name?.toLowerCase().includes(query) ||
+        (q.target_attribute || q.question_id).toLowerCase().includes(query)
     );
   }, [questionsByCategory, activeCategory, searchQuery]);
 

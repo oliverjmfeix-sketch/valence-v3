@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { FileText, Search, Plus, Loader2 } from 'lucide-react';
-import { getDeals } from '@/api/client';
+import { FileText, Search, Plus, Loader2, Building2, Calendar } from 'lucide-react';
+import { getDeals, getDealStatus } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { DealStatusBadge } from '@/components/deals/DealStatusBadge';
 import {
   Table,
   TableBody,
@@ -14,6 +16,24 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { format } from 'date-fns';
+import type { Deal, DealStatus } from '@/types';
+
+// Component to fetch and display status for a deal
+function DealStatusCell({ dealId }: { dealId: string }) {
+  const { data: status } = useQuery<DealStatus>({
+    queryKey: ['deal-status', dealId],
+    queryFn: () => getDealStatus(dealId),
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      if (s === 'pending' || s === 'extracting' || s === 'storing') {
+        return 5000;
+      }
+      return false;
+    },
+  });
+
+  return <DealStatusBadge status={status?.status || 'pending'} />;
+}
 
 export default function DealsPage() {
   const navigate = useNavigate();
@@ -29,27 +49,29 @@ export default function DealsPage() {
     (deal.borrower?.toLowerCase().includes(search.toLowerCase()) ?? false)
   );
 
+  const useCards = !filteredDeals || filteredDeals.length < 10;
+
   return (
     <div className="container py-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Deals</h1>
-          <p className="text-muted-foreground">View and analyze credit agreements</p>
+          <h1 className="text-3xl font-semibold tracking-tight">Deals</h1>
+          <p className="text-muted-foreground mt-1">View and analyze credit agreements</p>
         </div>
-        <Button onClick={() => navigate('/upload')}>
+        <Button onClick={() => navigate('/upload')} size="lg">
           <Plus className="h-4 w-4 mr-2" />
           Upload Deal
         </Button>
       </div>
 
-      <div className="mb-4">
-        <div className="relative max-w-sm">
+      <div className="mb-6">
+        <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search deals..."
-            className="pl-9"
+            placeholder="Search deals by name or borrower..."
+            className="pl-10"
           />
         </div>
       </div>
@@ -60,31 +82,77 @@ export default function DealsPage() {
         </div>
       ) : error ? (
         <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-          <p>Failed to load deals</p>
+          <p className="text-lg font-medium">Failed to load deals</p>
           <p className="text-sm">Please check your API connection</p>
         </div>
       ) : filteredDeals?.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 border rounded-lg bg-card">
-          <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-          <p className="text-lg font-medium">No deals found</p>
-          <p className="text-muted-foreground mb-4">
-            {search ? 'Try a different search term' : 'Upload your first credit agreement'}
-          </p>
-          {!search && (
-            <Button onClick={() => navigate('/upload')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Upload Deal
-            </Button>
-          )}
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-16">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
+              <FileText className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-semibold mb-1">No deals found</h3>
+            <p className="text-muted-foreground mb-6 text-center max-w-sm">
+              {search ? 'Try a different search term' : 'Upload your first credit agreement to get started'}
+            </p>
+            {!search && (
+              <Button onClick={() => navigate('/upload')}>
+                <Plus className="h-4 w-4 mr-2" />
+                Upload Your First Deal
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      ) : useCards ? (
+        // Card grid for fewer deals
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredDeals?.map((deal) => (
+            <Card
+              key={deal.deal_id}
+              className="cursor-pointer hover:border-accent/50 transition-colors"
+              onClick={() => navigate(`/deals/${deal.deal_id}`)}
+            >
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <h3 className="font-semibold text-lg leading-tight line-clamp-2">
+                    {deal.deal_name}
+                  </h3>
+                  <DealStatusCell dealId={deal.deal_id} />
+                </div>
+                <div className="space-y-1.5 text-sm text-muted-foreground">
+                  {deal.borrower && (
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{deal.borrower}</span>
+                    </div>
+                  )}
+                  {(deal.created_at || deal.upload_date) && (
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 shrink-0" />
+                      <span>
+                        {(() => {
+                          const dateStr = deal.created_at || deal.upload_date;
+                          if (!dateStr || isNaN(new Date(dateStr).getTime())) return '—';
+                          return format(new Date(dateStr), 'MMM d, yyyy');
+                        })()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : (
-        <div className="border rounded-lg bg-card">
+        // Table for many deals
+        <Card>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Deal Name</TableHead>
                 <TableHead>Borrower</TableHead>
-                <TableHead>Upload Date</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead className="text-right">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -97,15 +165,20 @@ export default function DealsPage() {
                   <TableCell className="font-medium">{deal.deal_name}</TableCell>
                   <TableCell>{deal.borrower ?? '—'}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {deal.upload_date && !isNaN(new Date(deal.upload_date).getTime())
-                      ? format(new Date(deal.upload_date), 'MMM d, yyyy')
-                      : '—'}
+                    {(() => {
+                      const dateStr = deal.created_at || deal.upload_date;
+                      if (!dateStr || isNaN(new Date(dateStr).getTime())) return '—';
+                      return format(new Date(dateStr), 'MMM d, yyyy');
+                    })()}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DealStatusCell dealId={deal.deal_id} />
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
+        </Card>
       )}
     </div>
   );
