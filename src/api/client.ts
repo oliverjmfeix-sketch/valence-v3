@@ -104,6 +104,14 @@ export async function getDealAnswers(dealId: string): Promise<DealAnswer[]> {
   return fetchAPI<DealAnswer[]>(`/api/deals/${dealId}/answers`);
 }
 
+// ============ Delete Deal ============
+
+export async function deleteDeal(dealId: string): Promise<void> {
+  await fetchAPI<void>(`/api/deals/${dealId}`, {
+    method: 'DELETE',
+  });
+}
+
 // ============ Health Check ============
 
 export async function healthCheck(): Promise<{ status: string }> {
