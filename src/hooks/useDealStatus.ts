@@ -36,16 +36,26 @@ export function useDealStatusPolling(dealId: string | undefined) {
       return false;
     },
     refetchIntervalInBackground: true,
+    retry: (failureCount) => {
+      // Retry a few times in case backend isn't ready
+      return failureCount < 3;
+    },
+    retryDelay: 1000,
   });
 
   const isProcessing = query.data?.status === 'pending' || 
                        query.data?.status === 'extracting' || 
                        query.data?.status === 'storing';
 
+  const hasError = query.data?.status === 'error' || 
+                   (query.data?.error_message != null) ||
+                   (query.data?.error != null);
+
   return {
     ...query,
     isProcessing,
     isComplete: query.data?.status === 'complete',
     isError: query.data?.status === 'error',
+    hasError,
   };
 }

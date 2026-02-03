@@ -87,7 +87,7 @@ export function MultiselectAnswer({ questionText, concepts, className }: Multise
       {!hasAnswer ? (
         <span className="flex items-center gap-1.5 text-muted-foreground">
           <Minus className="h-4 w-4" />
-          <span className="text-sm">No concepts found</span>
+          <span className="text-sm">No data</span>
         </span>
       ) : (
         <div className="space-y-2">

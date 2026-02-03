@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
@@ -40,94 +39,111 @@ export function CategorySection({
   }).length;
 
   return (
-    <Card className={cn('', className)} id={`category-${categoryId}`}>
+    <div className={cn('rounded-lg border bg-card', className)} id={`category-${categoryId}`}>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-        <CardHeader className="py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="flex h-7 w-7 items-center justify-center rounded bg-primary text-primary-foreground text-sm font-semibold">
-                {categoryCode}
-              </span>
-              <CardTitle className="text-base">{categoryName}</CardTitle>
-              <Badge variant="secondary" className="text-xs">
-                {answeredCount}/{questions.length}
-              </Badge>
-            </div>
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                {isOpen ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
-            </CollapsibleTrigger>
+        {/* Simplified header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <div className="flex items-center gap-3">
+            <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-primary-foreground text-xs font-semibold">
+              {categoryCode}
+            </span>
+            <span className="font-medium text-sm">{categoryName}</span>
+            <Badge 
+              variant="secondary" 
+              className={cn(
+                "text-xs",
+                answeredCount === 0 && "opacity-50"
+              )}
+            >
+              {answeredCount}/{questions.length}
+            </Badge>
           </div>
-        </CardHeader>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+              {isOpen ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </CollapsibleTrigger>
+        </div>
 
         <CollapsibleContent>
-          <CardContent className="pt-0 pb-4">
-            <div className="divide-y">
-              {questions.map((question) => {
-                const { value } = getAnswerForQuestion(provision, question);
-                
-                // Render based on answer type
-                switch (question.answer_type) {
-                  case 'boolean':
-                    return (
-                      <BooleanAnswer
-                        key={question.question_id}
-                        questionText={question.question_text}
-                        value={value as boolean | undefined}
-                      />
-                    );
-                  case 'currency':
-                    return (
-                      <CurrencyAnswer
-                        key={question.question_id}
-                        questionText={question.question_text}
-                        value={value as number | undefined}
-                      />
-                    );
-                  case 'percentage':
-                    return (
-                      <PercentageAnswer
-                        key={question.question_id}
-                        questionText={question.question_text}
-                        value={value as number | undefined}
-                      />
-                    );
-                  case 'number':
-                    return (
-                      <CurrencyAnswer
-                        key={question.question_id}
-                        questionText={question.question_text}
-                        value={value as number | undefined}
-                      />
-                    );
-                  case 'multiselect':
-                    return (
-                      <MultiselectAnswer
-                        key={question.question_id}
-                        questionText={question.question_text}
-                        concepts={(value as ConceptApplicability[]) || []}
-                      />
-                    );
-                  default:
-                    return (
-                      <div key={question.question_id} className="py-3">
-                        <p className="text-sm">{question.question_text}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {value !== undefined ? String(value) : 'Not found'}
-                        </p>
-                      </div>
-                    );
-                }
-              })}
+          <div className="divide-y divide-border">
+            {questions.map((question, index) => {
+              const { value } = getAnswerForQuestion(provision, question);
+              
+              // Render based on answer type
+              return (
+                <div 
+                  key={question.question_id} 
+                  className={cn(
+                    "px-4",
+                    index % 2 === 1 && "bg-muted/30"
+                  )}
+                >
+                  {(() => {
+                    switch (question.answer_type) {
+                      case 'boolean':
+                        return (
+                          <BooleanAnswer
+                            questionText={question.question_text}
+                            value={value as boolean | undefined}
+                          />
+                        );
+                      case 'currency':
+                        return (
+                          <CurrencyAnswer
+                            questionText={question.question_text}
+                            value={value as number | undefined}
+                          />
+                        );
+                      case 'percentage':
+                        return (
+                          <PercentageAnswer
+                            questionText={question.question_text}
+                            value={value as number | undefined}
+                          />
+                        );
+                      case 'number':
+                        return (
+                          <CurrencyAnswer
+                            questionText={question.question_text}
+                            value={value as number | undefined}
+                          />
+                        );
+                      case 'multiselect':
+                        return (
+                          <MultiselectAnswer
+                            questionText={question.question_text}
+                            concepts={(value as ConceptApplicability[]) || []}
+                          />
+                        );
+                      default:
+                        return (
+                          <div className="py-3">
+                            <p className="text-sm">{question.question_text}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {value !== undefined ? String(value) : 'Not found'}
+                            </p>
+                          </div>
+                        );
+                    }
+                  })()}
+                </div>
+              );
+            })}
+          </div>
+          
+          {/* Empty state for no questions */}
+          {questions.length === 0 && (
+            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+              No questions in this category
             </div>
-          </CardContent>
+          )}
         </CollapsibleContent>
       </Collapsible>
-    </Card>
+    </div>
   );
 }
