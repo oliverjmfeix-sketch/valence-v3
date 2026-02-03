@@ -1,5 +1,4 @@
 import { Loader2, Trash2 } from "lucide-react";
-
 import { useQuery } from "@tanstack/react-query";
 
 import { DealStatusBadge } from "@/components/deals/DealStatusBadge";
@@ -15,38 +14,32 @@ import type { Deal, DealStatus } from "@/types";
 interface DealRowActionsProps {
   deal: Deal;
   isDeleting: boolean;
-  onDelete: (deal: Deal) => void;
+  onDelete: (deal: Deal, status?: DealStatus["status"]) => void;
 }
 
 export function DealRowActions({ deal, isDeleting, onDelete }: DealRowActionsProps) {
-  // IMPORTANT: Keep list polling lightweight; fast polling (e.g. every 2s) can freeze slower machines.
+  // One-time fetch with long cache - NO POLLING on list page to prevent freezes
   const { data: status } = useQuery<DealStatus>({
     queryKey: ["deal-status", deal.deal_id],
     queryFn: () => getDealStatus(deal.deal_id),
-    refetchInterval: (query) => {
-      const s = query.state.data?.status;
-      if (s === "pending" || s === "extracting" || s === "storing") return 5000;
-      return false;
-    },
-    refetchIntervalInBackground: true,
+    staleTime: 60000,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const statusValue = status?.status;
 
-  // Only allow delete when status is explicitly complete or error
-  const canDelete = statusValue === "complete" || statusValue === "error";
-  const statusKnown = statusValue != null;
-
-  const tooltipText = !statusKnown
-    ? "Loading status…"
-    : canDelete
-      ? "Delete deal"
-      : "Cannot delete while extraction is in progress";
+  const handleDeleteClick = () => {
+    if (import.meta.env.DEV) {
+      console.log("Delete clicked for deal:", deal.deal_id, "status:", statusValue);
+    }
+    onDelete(deal, statusValue);
+  };
 
   return (
     <div className="flex items-center gap-1 shrink-0">
-      <DealStatusBadge status={statusValue ?? "pending"} />
+      <DealStatusBadge status={statusValue ?? "pending"} animate={false} />
 
-      {/* Wrap trigger so we can stop card/table-row navigation even when the button is disabled */}
       <Tooltip>
         <TooltipTrigger asChild>
           <span
@@ -57,8 +50,8 @@ export function DealRowActions({ deal, isDeleting, onDelete }: DealRowActionsPro
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-              onClick={() => onDelete(deal)}
-              disabled={!canDelete || isDeleting}
+              onClick={handleDeleteClick}
+              disabled={isDeleting}
               aria-label="Delete deal"
             >
               {isDeleting ? (
@@ -69,7 +62,7 @@ export function DealRowActions({ deal, isDeleting, onDelete }: DealRowActionsPro
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent>{tooltipText}</TooltipContent>
+        <TooltipContent>Delete deal</TooltipContent>
       </Tooltip>
     </div>
   );
