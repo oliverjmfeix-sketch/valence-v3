@@ -102,7 +102,7 @@ export function QAInterface({ dealId }: QAInterfaceProps) {
               <p className="text-sm leading-relaxed">{response.answer}</p>
             </div>
 
-            {response.evidence.length > 0 && (
+            {Array.isArray(response.evidence) && response.evidence.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">Supporting Evidence:</p>
                 <div className="space-y-2">
