@@ -1,168 +1,115 @@
 
-Context and audit summary (what I verified)
-- You’re on route “/” (Deals list).
-- Current list behavior is controlled by:
-  - src/components/deals/DealRowActions.tsx (renders status badge + trash icon, currently disables delete unless status is complete/error, and polls status every 5s while processing)
-  - src/pages/DealsPage.tsx (holds deletingDeal state and renders the AlertDialog)
-- In our controlled Preview run, clicking the trash icon on a Complete deal opens the “Delete Deal?” dialog (so the wiring between DealRowActions → DealsPage → AlertDialog works when the button is enabled).
-- Your reported case is different: you are clicking a Processing deal and want delete to work; currently it is intentionally blocked, and the combination of “disabled button” + wrapper span that stops propagation can make it feel like “looks enabled, no action”.
+Goal
+- Fix two issues on Deals list (/):
+  1) Clicking the trash icon on a Processing deal “does nothing”
+  2) Page becomes unresponsive (“freeze”) when many deals are Processing
 
-Root cause (why it “does nothing” for you)
-1) Delete is explicitly disabled for Processing deals
-- In DealRowActions.tsx:
-  - canDelete is only true when statusValue is "complete" or "error".
-  - disabled={!canDelete || isDeleting}
-- For Processing deals (pending/extracting/storing), the underlying <button> is disabled, so the onClick handler on the Button never runs. That matches your symptom: “Looks enabled, no action”.
+What I audited (evidence)
+- Current list delete wiring (DealRowActions → DealsPage → AlertDialog) is correct for non-disabled buttons.
+- In my controlled browser run, clicking a deal’s trash icon produced console logs:
+  - “Delete clicked…” → “handleDeleteClick…” → “deleting changed…”
+  and the DELETE request succeeded (200) against `/api/deals/:id`.
+- Status polling on the list is already disabled (refetchInterval: false) but the list still fires 1 status request per deal on initial render (burst concurrency).
 
-2) Tooltip can appear as “nothing” depending on interaction timing
-- Tooltip text exists in code, but:
-  - Tooltips require hover dwell; default Radix delay can make it seem like nothing happens if you don’t hover long enough.
-  - On click, we stopPropagation (to avoid navigating into the deal), but we do not provide any click feedback when the delete is disabled. So click feels dead.
+Root-cause hypotheses (most likely)
+A) Freeze root cause: initial “N concurrent status fetches” + rendering churn
+- Even without polling, the list triggers a status fetch per row on mount.
+- With 10–20 deals, that’s 10–20 simultaneous network calls plus React renders; with slow network/CPU this can lock the UI, making clicks appear to “do nothing”.
+- The symptom “tooltip shows nothing” is consistent with the main thread being blocked/janky (hover delay, no paint).
 
-Root cause (why the page can freeze / “page unresponsive”)
-- The list page does N separate status queries (one per deal row), and for Processing deals it polls every 5 seconds.
-- With “Many Processing” deals, that becomes a steady background of fetch + re-render churn.
-- Additionally, each Processing badge uses CSS spin animation (Loader2 + animate-spin) which can contribute to CPU load if many rows are simultaneously “extracting/storing”.
+B) Click root cause: event handling + Radix TooltipTrigger wrapper + row navigation + blocked main thread
+- The current structure is: TooltipTrigger(asChild) → span(stopPropagation) → Button(onClick).
+- This should work when UI is responsive, but it is fragile:
+  - The trigger is the span, not the button.
+  - StopPropagation happens on the wrapper, not in capture phase.
+  - If the UI is janking/frozen, user can perceive clicks as not firing.
+- We need a more “bulletproof” event capture arrangement that cannot be stolen by the parent row/card and does not depend on tooltip wrappers.
 
-What we will change (aligned with your approved preferences)
-You selected:
-- Allow deletion while processing
-- Desktop/laptop
-- Freeze symptom: page becomes unresponsive
-So the fix needs to do two things:
-A) Make delete clickable for Processing deals (and still safe)
-B) Stop list-page polling and reduce CPU work so the list can’t freeze
+Fix strategy (high-confidence)
+1) Eliminate the “N requests on mount” pattern on the Deals list
+- Do not fetch per-row status on initial render.
+- Replace with one of these approaches (preferred order):
 
-Implementation plan (code changes)
-
-1) Make delete work for Processing deals (UI + logic)
-Files: 
-- src/components/deals/DealRowActions.tsx
-- src/pages/DealsPage.tsx
-
-1.1 Update DealRowActions to never disable delete due to status
-- Change the delete Button to be disabled only while an actual delete request is in-flight:
-  - disabled={isDeleting} (remove status-based disabling)
-- Keep stopPropagation to prevent card/row navigation when clicking trash.
-
-1.2 Pass status into the delete flow so the dialog can warn appropriately
-- Update DealRowActions prop and call signature:
-  - onDelete(deal, statusValue)
-- Update DealsPage state:
-  - replace deletingDeal: Deal | null
-  - with deleting: { deal: Deal; status?: DealStatus["status"] } | null
-- In the AlertDialog description:
-  - If status is pending/extracting/storing, show an additional warning line like:
-    - “This deal is still processing. Deleting it may fail or leave background processing running.”
-  - Still allow the user to proceed (since you requested deletion while processing).
-
-1.3 Provide click feedback even if status is unknown
-- If status hasn’t loaded yet, still allow opening the dialog (status = undefined).
-- The dialog will show a neutral warning:
-  - “Status is still loading; deletion may fail if processing is in progress.”
-
-2) URGENT: Disable all status polling on the deals list page (temporary fix)
-File:
-- src/components/deals/DealRowActions.tsx
-
-2.1 Replace current polling query with one-time fetch (your requested snippet)
-- Change useQuery options to:
-  - staleTime: 60000
-  - refetchInterval: false
-  - refetchOnWindowFocus: false
-  - refetchOnReconnect: false (add this as well to avoid surprise refetch storms)
-- Remove refetchIntervalInBackground (not needed once polling is off)
-
+1.1 Preferred: Single batched backend call for statuses (1 request instead of N)
+- Add a Lovable Cloud backend function (public) like `GET /deal-statuses?ids=...` or `POST /deal-statuses` with JSON body `{ deal_ids: string[] }`.
+- That backend function will call the external API server-side and return a map:
+  - `{ [deal_id]: { status, progress, current_step, ... } }`
+- Concurrency-limit these upstream calls (e.g., 4 at a time) to avoid overwhelming the API and to keep the function responsive.
+- Frontend: in DealsPage, compute `dealIds` from `deals`, and do a single `useQuery(['deal-statuses', dealIds])`.
+- DealRowActions becomes “dumb”: it receives `statusValue` as prop, no `useQuery` inside each row.
 Expected result:
-- When you load “/”, each deal status is fetched once, then cached for 60s, with no periodic polling.
-- This should remove the major cause of list-page “page unresponsive”.
+- List page loads with 1 deals request + 1 statuses request; no more burst of N fetches, so freezes should stop.
 
-2.2 Add a manual “Refresh statuses” affordance (so you’re not stuck with stale statuses)
-File:
+1.2 If backend batching is not acceptable right now: lazy/limited client fetching
+- Keep client-side fetching but:
+  - Only fetch statuses after initial paint (setTimeout/idle callback).
+  - Limit concurrency (queue fetches, 3–4 at a time).
+  - Fetch only for visible rows (IntersectionObserver) and skip cards not in view.
+Expected result:
+- Initial render becomes fast; statuses fill in gradually without freezing.
+
+2) Make delete clicks unstealable and observable (even under UI stress)
+2.1 Simplify DealRowActions markup for reliable events + tooltips
+- Remove the span wrapper and attach event handling directly to the Button (and/or an actions container):
+  - Use `onPointerDownCapture` and `onClickCapture` to stop propagation before the Card/TableRow click handler sees it.
+  - Keep `onClick` for the actual delete handler.
+- Make TooltipTrigger wrap the Button directly (Button is forwardRef) to avoid “trigger is a span” fragility.
+Expected result:
+- Parent row/card navigation cannot interfere; delete handler fires deterministically.
+
+2.2 Add a non-console user-visible debug fallback (temporary, DEV-only)
+- In DEV, fire a toast like “Opening delete dialog…” on delete click.
+Why:
+- If the UI is janking, console logs may not be noticed, but a toast is immediate visual confirmation.
+
+3) Remove remaining contributors to “freeze”
+Even after batching statuses, add these defensive tweaks:
+- Set React Query defaults in QueryClient to reduce surprise refetch storms (safe for list views):
+  - refetchOnWindowFocus: false (globally or at least for the list queries)
+  - refetchOnReconnect: false
+- Ensure no “spin” animations run in a list context (already added `animate={false}` on DealStatusBadge in the list; keep it).
+- Ensure list rendering doesn’t do heavy work inside map loops:
+  - Memoize derived values and avoid inline IIFEs where possible (not critical, but helpful).
+
+4) Verification plan (what I will test after implementing)
+Delete behavior (processing)
+- Ensure at least one deal is actually Processing (pending/extracting/storing).
+- Click trash on that deal:
+  - Confirm DEV toast/log appears.
+  - Confirm AlertDialog opens every time.
+  - Confirm pressing Delete triggers `DELETE /api/deals/:id` (network shows it).
+Freeze behavior
+- Reload / with 10–20 deals:
+  - Confirm network shows:
+    - 1 call to `/api/deals`
+    - 1 call to the batched statuses endpoint (or a throttled trickle if using lazy fetching)
+    - No continuous polling on /.
+- Leave the page idle for 2 minutes:
+  - Confirm no repeated status fetches.
+  - Confirm no “Page unresponsive”.
+
+Files that will change (implementation)
 - src/pages/DealsPage.tsx
-- Add a small secondary button near Search (or header):
-  - “Refresh statuses”
-  - onClick: queryClient.invalidateQueries({ queryKey: ["deal-status"] })
-This gives you a way to update statuses on demand without polling.
-
-3) Reduce CPU load further: stop spinner animations on the list (optional but recommended given your freeze symptom)
-Files:
-- src/components/deals/DealStatusBadge.tsx
+  - Move status loading to a single query (batched) or lazy/throttled mechanism.
+  - Pass status into DealRowActions as a prop.
 - src/components/deals/DealRowActions.tsx
+  - Remove per-row useQuery.
+  - Harden event handling with capture-phase stopPropagation.
+  - Simplify TooltipTrigger structure to wrap Button directly.
+- src/api/client.ts
+  - Add client helper for the batched statuses endpoint (if using Lovable Cloud backend function).
+- (New) Lovable Cloud backend function (recommended)
+  - Implement `deal-statuses` (batch) proxy with concurrency limiting and clear error handling.
+  - No database changes required.
 
-3.1 Add a prop to DealStatusBadge to control animation
-- Add prop: animate?: boolean (default true)
-- When animate is false:
-  - do not apply config.iconClassName (so Loader2 does not animate-spin)
+Why this will fix both problems
+- The freeze is primarily caused by many status requests and renders competing on the main thread. Reducing N-per-row fetching to 1 batched request (or throttled lazy fetch) removes the primary load spike.
+- Once the UI stays responsive, clicks won’t be “lost”. Additionally, switching to capture-phase propagation control and removing the span/trigger fragility ensures the delete handler fires even if parent rows/cards are clickable.
 
-3.2 In DealRowActions (list page), render badge with animate={false}
-- This keeps the status visible but removes multiple concurrent spinners that can tax the browser.
+Rollout / risk
+- Low risk to core data paths: deals list and delete flows remain unchanged; only the status acquisition strategy and click plumbing change.
+- If the batched status endpoint temporarily fails, we’ll render a safe fallback status (e.g., “Pending/Unknown”) and keep delete available.
 
-4) Add the debug logging you requested (DEV-only) to conclusively confirm click flow
-Files:
-- src/components/deals/DealRowActions.tsx
-- src/pages/DealsPage.tsx
-
-4.1 DealRowActions click log
-- Add:
-  - console.log("Delete clicked for deal:", deal.deal_id, "status:", statusValue)
-- Guard it:
-  - if (import.meta.env.DEV) console.log(...)
-
-4.2 DealsPage handler + state logs
-- Add logs in handleDeleteClick:
-  - console.log("handleDeleteClick called:", deal, status)
-- Add useEffect to log state changes:
-  - console.log("deleting changed:", deleting)
-
-What logs you should expect after these changes
-- Clicking trash on any deal (including Processing) should produce:
-  - “Delete clicked for deal: … status: pending|extracting|storing|…”
-  - “handleDeleteClick called: …”
-  - “deleting changed: …”
-  - And the AlertDialog should appear.
-
-- If you still see “nothing happens”:
-  - That would indicate the click is not reaching the handler at all (e.g., overlay, element covered, or a navigation capturing event). The logs will prove where it breaks.
-
-Testing checklist (what you’ll verify in Preview)
-1) Freeze regression
-- Load “/” with 0–20 deals, many processing.
-- Confirm the browser no longer shows “Page unresponsive” after sitting on the page for 1–2 minutes.
-
-2) Delete behavior (Processing deal)
-- Click trash on a Processing deal:
-  - Dialog opens.
-  - Dialog shows warning about processing.
-  - Clicking “Delete” triggers the DELETE request; success toast or error toast appears.
-
-3) Delete behavior (Complete deal)
-- Click trash on a Complete deal:
-  - Dialog opens with standard copy.
-  - Confirm delete removes the deal and the list refreshes.
-
-4) Status refresh
-- Click “Refresh statuses” and confirm statuses update without any background polling.
-
-Notes / tradeoffs
-- Allowing deletion while processing may fail depending on how the external backend handles in-flight jobs. We’ll handle failures gracefully (toast with error), but we can’t guarantee the backend will cancel/cleanup background extraction unless the API supports it.
-- Disabling polling on the list means statuses won’t live-update. That’s intentional for stability; the deal detail page can remain the place for live progress updates.
-
-Files to change (summary)
-- src/components/deals/DealRowActions.tsx
-  - Remove status-based disabling of delete
-  - Disable polling (one-time fetch + caching)
-  - Pass status to onDelete
-  - Add DEV-only logs
-  - Use non-animated badge on list
-
-- src/pages/DealsPage.tsx
-  - Store deletingDeal + status together
-  - Update AlertDialog copy based on status
-  - Add “Refresh statuses” button
-  - Add DEV-only logs
-
-- src/components/deals/DealStatusBadge.tsx (optional but recommended)
-  - Add animate prop to disable spin on list
-
-If you approve, I’ll implement the above changes and then re-test in Preview by deleting a Processing deal and verifying no status polling occurs on the list.
+Open questions (non-blocking, but helpful for final tuning)
+- Roughly how many Processing deals do you typically have when it freezes (10, 20, 50+)?
+- Do you need accurate per-deal status on the list at all times, or is “Refresh statuses” sufficient for the list view?
