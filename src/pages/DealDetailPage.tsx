@@ -53,16 +53,20 @@ export default function DealDetailPage() {
     const seenCats = new Set<string>();
 
     questions.forEach((q) => {
-      const existing = byCategory.get(q.category_id) || [];
+      // Support both category_id and fallback to question_id prefix
+      const categoryId = q.category_id || q.question_id?.split('_')[0] || 'unknown';
+      const categoryName = q.category_name || categoryId;
+      
+      const existing = byCategory.get(categoryId) || [];
       existing.push(q);
-      byCategory.set(q.category_id, existing);
+      byCategory.set(categoryId, existing);
 
-      if (!seenCats.has(q.category_id)) {
-        seenCats.add(q.category_id);
+      if (!seenCats.has(categoryId)) {
+        seenCats.add(categoryId);
         cats.push({
-          id: q.category_id,
-          name: q.category_name,
-          code: q.category_id.charAt(0),
+          id: categoryId,
+          name: categoryName,
+          code: categoryId.charAt(0).toUpperCase(),
           questionCount: 0,
           answeredCount: 0,
         });
