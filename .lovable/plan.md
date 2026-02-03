@@ -1,138 +1,94 @@
 
+## What’s happening (root cause)
 
-# Fix Delete Button Not Working
+The “site not responding” freeze is very likely caused by an unintended re-render loop in `src/pages/DealsPage.tsx`:
 
-## Issue Analysis
+- Each `DealStatusCell` runs a `useEffect` that calls `onStatusChange(...)`.
+- In the parent, `onStatusChange` is currently passed as an inline arrow function:  
+  `onStatusChange={(status) => handleStatusChange(deal.deal_id, status)}`
+  which creates a brand-new function on every render.
+- Because `onStatusChange` changes every render, the `useEffect` in each `DealStatusCell` runs again even if the status didn’t change.
+- That effect calls `setDealStatuses`, which creates a new object each time, which triggers another render, and the cycle repeats (can peg CPU and trigger the browser “page unresponsive” dialog).
 
-After reviewing the code, I've identified two potential issues causing the delete button to not work:
-
-### Root Cause 1: Status Callback Called During Render (React Anti-Pattern)
-
-In `DealStatusCell` component (lines 53-55):
-```typescript
-// Notify parent of status changes
-if (onStatusChange && status?.status) {
-  onStatusChange(status.status);
-}
-```
-
-This code runs during render, which is a React anti-pattern. It can cause:
-- Infinite re-render loops
-- State not being updated properly
-- Unpredictable component behavior
-
-### Root Cause 2: Unnecessary Nested TooltipProvider
-
-Each `DealDeleteButton` creates its own `TooltipProvider` (line 73). While this shouldn't break functionality entirely, it can cause unexpected behavior with the existing App-level `TooltipProvider`.
+This also explains why the trash icon “does nothing”: the page is stuck re-rendering and becomes unresponsive.
 
 ---
 
-## Solution
+## Goal
 
-### Fix 1: Move Status Callback to useEffect
-
-**File: `src/pages/DealsPage.tsx`**
-
-Change the `DealStatusCell` component to properly notify parent using `useEffect`:
-
-```typescript
-function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusChange?: (status: string) => void }) {
-  const { data: status } = useQuery<DealStatus>({
-    queryKey: ['deal-status', dealId],
-    queryFn: () => getDealStatus(dealId),
-    refetchInterval: (query) => {
-      const s = query.state.data?.status;
-      if (s === 'pending' || s === 'extracting' || s === 'storing') {
-        return 5000;
-      }
-      return false;
-    },
-  });
-
-  // Use useEffect to notify parent of status changes
-  useEffect(() => {
-    if (onStatusChange && status?.status) {
-      onStatusChange(status.status);
-    }
-  }, [status?.status, onStatusChange]);
-
-  return <DealStatusBadge status={status?.status || 'pending'} />;
-}
-```
-
-### Fix 2: Remove Nested TooltipProvider
-
-**File: `src/pages/DealsPage.tsx`**
-
-Remove the `TooltipProvider` wrapper from `DealDeleteButton` since there's already one at the App level:
-
-```typescript
-function DealDeleteButton({ 
-  deal, 
-  canDelete, 
-  isDeleting,
-  onDelete 
-}: { 
-  deal: Deal; 
-  canDelete: boolean;
-  isDeleting: boolean;
-  onDelete: (deal: Deal) => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete(deal);
-          }}
-          disabled={!canDelete || isDeleting}
-          aria-label="Delete deal"
-        >
-          {isDeleting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Trash2 className="h-4 w-4" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {!canDelete 
-          ? "Cannot delete while extraction is in progress" 
-          : "Delete deal"
-        }
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-```
-
-### Fix 3: Add Import for useEffect
-
-Add `useEffect` to the imports at the top of the file:
-
-```typescript
-import { useState, useEffect } from 'react';
-```
+1. Stop the render loop so the Deals page stays responsive.
+2. Keep status tracking so the delete button can be disabled correctly.
+3. Make delete eligibility stricter per your UX requirement:
+   - Only allow delete when `status === "complete"` or `status === "error"`.
+   - Disable delete while upload/extraction is in progress (pending/extracting/storing or unknown).
 
 ---
 
-## Files to Modify
+## Changes to implement
 
-| File | Changes |
-|------|---------|
-| `src/pages/DealsPage.tsx` | Add useEffect import, fix DealStatusCell callback, remove nested TooltipProvider |
+### 1) Stabilize the status-change callback (fix the loop)
+
+**File:** `src/pages/DealsPage.tsx`
+
+- Update `DealStatusCell` API so it can call a single stable callback with `(dealId, status)` rather than receiving a per-row inline closure.
+  - Change prop type from:
+    - `onStatusChange?: (status: string) => void`
+  - to:
+    - `onStatusChange?: (dealId: string, status: DealStatus["status"]) => void` (or string if your types are loose)
+
+- In the parent component:
+  - Create `handleStatusChange` using `useCallback`.
+  - Ensure it does not update state if the value didn’t actually change:
+    - `setDealStatuses(prev => prev[dealId] === status ? prev : { ...prev, [dealId]: status })`
+
+- In `DealStatusCell`:
+  - Keep the `useEffect`, but now it will depend on a stable `onStatusChange` and won’t retrigger endlessly.
+
+**Expected outcome:** the Deals page stops re-rendering continuously and becomes responsive.
 
 ---
 
-## Summary of Changes
+### 2) Make “can delete” logic match your requirements
 
-1. **Add `useEffect` import** - Required for the status callback fix
-2. **Move status notification to useEffect** - Proper React pattern for side effects
-3. **Remove `TooltipProvider` wrapper** - Use the existing App-level provider
+**File:** `src/pages/DealsPage.tsx`
 
-These changes ensure the status is properly tracked and the click handler on the delete button works correctly.
+- Update `canDeleteDeal(dealId)` to:
+  - Return `true` only when status is exactly `"complete"` or `"error"`.
+  - Return `false` when status is missing/unknown (initial load), which also covers “upload in progress”.
 
+- Update tooltip copy for disabled state to be more accurate:
+  - If status unknown: “Loading status…”
+  - If status is pending/extracting/storing: “Cannot delete while extraction is in progress”
+  - Otherwise: “Delete deal”
+
+**Expected outcome:** deletion is not possible during upload/extraction; only complete/error deals can be deleted.
+
+---
+
+### 3) Minor cleanup (optional but recommended)
+
+**File:** `src/pages/DealsPage.tsx`
+
+- Remove unused import `TooltipProvider` (it’s currently imported but not used after the earlier change).
+- Keep `e.stopPropagation()` on the delete button to prevent navigation clicks (already present).
+
+---
+
+## Testing checklist (what we’ll verify after the fix)
+
+1. Open `/` (Deals list) and confirm the browser no longer shows “page not responding”.
+2. Hover trash icon:
+   - Tooltip shows correct text.
+3. While a deal is processing (pending/extracting/storing):
+   - Trash icon is disabled.
+4. For a complete deal:
+   - Clicking trash opens the confirmation dialog.
+   - Clicking “Delete” shows loading state, then success toast, and the deal disappears after refetch.
+5. For a failed delete:
+   - Error toast appears and the dialog remains open for retry.
+
+---
+
+## Files involved
+
+- `src/pages/DealsPage.tsx` (primary fix: stop render loop + correct disable rules)
