@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Search, Plus, Loader2, Building2, Calendar, Trash2 } from 'lucide-react';
@@ -49,10 +49,12 @@ function DealStatusCell({ dealId, onStatusChange }: { dealId: string; onStatusCh
     },
   });
 
-  // Notify parent of status changes
-  if (onStatusChange && status?.status) {
-    onStatusChange(status.status);
-  }
+  // Use useEffect to notify parent of status changes
+  useEffect(() => {
+    if (onStatusChange && status?.status) {
+      onStatusChange(status.status);
+    }
+  }, [status?.status, onStatusChange]);
 
   return <DealStatusBadge status={status?.status || 'pending'} />;
 }
@@ -70,35 +72,33 @@ function DealDeleteButton({
   onDelete: (deal: Deal) => void;
 }) {
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(deal);
-            }}
-            disabled={!canDelete || isDeleting}
-            aria-label="Delete deal"
-          >
-            {isDeleting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4" />
-            )}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {!canDelete 
-            ? "Cannot delete while extraction is in progress" 
-            : "Delete deal"
-          }
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(deal);
+          }}
+          disabled={!canDelete || isDeleting}
+          aria-label="Delete deal"
+        >
+          {isDeleting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {!canDelete 
+          ? "Cannot delete while extraction is in progress" 
+          : "Delete deal"
+        }
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
