@@ -22,15 +22,17 @@ export function OntologyBrowser({ questions, answers, onViewProvenance }: Ontolo
   const containerRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(400);
 
-  // Create answer lookup map
+  // Create answer lookup map - ensure answers is an array
   const answersMap = useMemo(() => {
-    return new Map(answers.map((a) => [a.question_id, a]));
+    const answersArray = Array.isArray(answers) ? answers : [];
+    return new Map(answersArray.map((a) => [a.question_id, a]));
   }, [answers]);
 
-  // Group questions by category
+  // Group questions by category - ensure questions is an array
   const questionsByCategory = useMemo(() => {
     const grouped = new Map<string, OntologyQuestion[]>();
-    questions.forEach((q) => {
+    const questionsArray = Array.isArray(questions) ? questions : [];
+    questionsArray.forEach((q) => {
       const existing = grouped.get(q.category) || [];
       existing.push(q);
       grouped.set(q.category, existing);
