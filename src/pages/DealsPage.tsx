@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { FileText, Search, Plus, Loader2, Building2, Calendar, RefreshCw } from 'lucide-react';
-import { getDeals, deleteDeal } from '@/api/client';
+import { getDeals, deleteDeal, getDealStatusesBatch } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,6 +46,22 @@ export default function DealsPage() {
   const { data: deals, isLoading, error } = useQuery({
     queryKey: ['deals'],
     queryFn: getDeals,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+
+  // Compute deal IDs for batched status fetching
+  const dealIds = useMemo(() => deals?.map(d => d.deal_id) ?? [], [deals]);
+
+  // Single batched query for ALL deal statuses - replaces N per-row queries
+  const { data: statusMap } = useQuery({
+    queryKey: ['deal-statuses-batch', dealIds],
+    queryFn: () => getDealStatusesBatch(dealIds),
+    enabled: dealIds.length > 0,
+    staleTime: 60000,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const deleteMutation = useMutation({
@@ -53,6 +69,7 @@ export default function DealsPage() {
     onSuccess: () => {
       toast({ title: "Deal deleted successfully" });
       queryClient.invalidateQueries({ queryKey: ['deals'] });
+      queryClient.invalidateQueries({ queryKey: ['deal-statuses-batch'] });
       setDeleting(null);
     },
     onError: (error: Error) => {
@@ -74,6 +91,7 @@ export default function DealsPage() {
   const handleDeleteClick = (deal: Deal, status?: DealStatus["status"]) => {
     if (import.meta.env.DEV) {
       console.log("handleDeleteClick called:", deal, "status:", status);
+      toast({ title: "Opening delete dialog..." }); // DEV visual feedback
     }
     setDeleting({ deal, status });
   };
@@ -85,7 +103,7 @@ export default function DealsPage() {
   };
 
   const handleRefreshStatuses = () => {
-    queryClient.invalidateQueries({ queryKey: ['deal-status'] });
+    queryClient.invalidateQueries({ queryKey: ['deal-statuses-batch'] });
     toast({ title: "Refreshing statuses..." });
   };
 
@@ -162,6 +180,7 @@ export default function DealsPage() {
                   </h3>
                   <DealRowActions
                     deal={deal}
+                    statusValue={statusMap?.[deal.deal_id]?.status}
                     isDeleting={deleteMutation.isPending && deleting?.deal.deal_id === deal.deal_id}
                     onDelete={handleDeleteClick}
                   />
@@ -221,6 +240,7 @@ export default function DealsPage() {
                   <TableCell colSpan={2}>
                     <DealRowActions
                       deal={deal}
+                      statusValue={statusMap?.[deal.deal_id]?.status}
                       isDeleting={deleteMutation.isPending && deleting?.deal.deal_id === deal.deal_id}
                       onDelete={handleDeleteClick}
                     />

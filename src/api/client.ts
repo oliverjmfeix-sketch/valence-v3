@@ -117,3 +117,26 @@ export async function deleteDeal(dealId: string): Promise<void> {
 export async function healthCheck(): Promise<{ status: string }> {
   return fetchAPI<{ status: string }>('/health');
 }
+
+// ============ Batched Status Fetching ============
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+export async function getDealStatusesBatch(dealIds: string[]): Promise<Record<string, DealStatus>> {
+  if (dealIds.length === 0) return {};
+
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/deal-statuses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deal_ids: dealIds }),
+  });
+
+  if (!response.ok) {
+    console.error('Failed to fetch batched statuses:', response.status);
+    // Return empty map on failure, let individual rows show "pending"
+    return {};
+  }
+
+  const data = await response.json();
+  return data.statuses || {};
+}
