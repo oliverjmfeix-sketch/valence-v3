@@ -11,10 +11,10 @@ export function Header() {
   ];
 
   return (
-    <header className="border-b bg-card">
-      <div className="container flex h-16 items-center justify-between">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold">
+    <header className="border-b bg-card sticky top-0 z-50">
+      <div className="container flex h-14 items-center justify-between">
+        <Link to="/" className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-lg">
             V
           </div>
           <span className="text-xl font-semibold tracking-tight">Valence</span>
@@ -28,8 +28,8 @@ export function Header() {
               className={cn(
                 'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                 location.pathname === path
-                  ? 'bg-secondary text-secondary-foreground'
-                  : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
               )}
             >
               <Icon className="h-4 w-4" />

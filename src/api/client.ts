@@ -1,4 +1,15 @@
-import type { Deal, OntologyQuestion, DealAnswer, Provenance, QAResponse, UploadResponse, DealStatus } from '@/types';
+import type { 
+  Deal, 
+  DealStatus, 
+  RPProvision, 
+  OntologyQuestion, 
+  OntologyQuestionsResponse,
+  OntologyConceptsResponse,
+  QAResponse, 
+  UploadResponse,
+  Provenance,
+  DealAnswer
+} from '@/types';
 
 const API_URL = 'https://valencev3-production.up.railway.app';
 
@@ -18,7 +29,16 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   return response.json();
 }
 
-// Deals
+// ============ Deals ============
+
+export async function getDeals(): Promise<Deal[]> {
+  return fetchAPI<Deal[]>('/api/deals');
+}
+
+export async function getDeal(dealId: string): Promise<Deal> {
+  return fetchAPI<Deal>(`/api/deals/${dealId}`);
+}
+
 export async function uploadDeal(file: File, dealName: string, borrower: string): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -41,33 +61,51 @@ export async function getDealStatus(dealId: string): Promise<DealStatus> {
   return fetchAPI<DealStatus>(`/api/deals/${dealId}/status`);
 }
 
-export async function getDeals(): Promise<Deal[]> {
-  return fetchAPI<Deal[]>('/api/deals');
+// ============ RP Provision ============
+
+export async function getRPProvision(dealId: string): Promise<RPProvision> {
+  return fetchAPI<RPProvision>(`/api/deals/${dealId}/rp-provision`);
 }
 
-export async function getDeal(id: string): Promise<Deal> {
-  return fetchAPI<Deal>(`/api/deals/${id}`);
+// ============ Ontology ============
+
+export async function getOntologyQuestionsRP(): Promise<OntologyQuestionsResponse> {
+  return fetchAPI<OntologyQuestionsResponse>('/api/ontology/questions/RP');
 }
 
-// Ontology
+export async function getOntologyConcepts(): Promise<OntologyConceptsResponse> {
+  return fetchAPI<OntologyConceptsResponse>('/api/ontology/concepts');
+}
+
+// Legacy endpoint - kept for backwards compatibility
 export async function getOntologyQuestions(): Promise<OntologyQuestion[]> {
-  return fetchAPI<OntologyQuestion[]>('/api/ontology/questions');
+  const response = await getOntologyQuestionsRP();
+  return response.questions || [];
 }
 
-// Answers
-export async function getDealAnswers(dealId: string): Promise<DealAnswer[]> {
-  return fetchAPI<DealAnswer[]>(`/api/deals/${dealId}/answers`);
-}
+// ============ Q&A ============
 
-// Provenance
-export async function getProvenance(dealId: string, attribute: string): Promise<Provenance> {
-  return fetchAPI<Provenance>(`/api/deals/${dealId}/provenance/${attribute}`);
-}
-
-// Q&A
 export async function askQuestion(dealId: string, question: string): Promise<QAResponse> {
   return fetchAPI<QAResponse>(`/api/deals/${dealId}/qa`, {
     method: 'POST',
     body: JSON.stringify({ question }),
   });
+}
+
+// ============ Provenance ============
+
+export async function getProvenance(dealId: string, attribute: string): Promise<Provenance> {
+  return fetchAPI<Provenance>(`/api/deals/${dealId}/provenance/${attribute}`);
+}
+
+// ============ Legacy Endpoints ============
+
+export async function getDealAnswers(dealId: string): Promise<DealAnswer[]> {
+  return fetchAPI<DealAnswer[]>(`/api/deals/${dealId}/answers`);
+}
+
+// ============ Health Check ============
+
+export async function healthCheck(): Promise<{ status: string }> {
+  return fetchAPI<{ status: string }>('/health');
 }
