@@ -1,86 +1,29 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Building2, Calendar, Loader2, FileSearch, AlertCircle, RefreshCw } from 'lucide-react';
-import { getDeal, getRPProvision, getOntologyQuestionsRP } from '@/api/client';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { Loader2, MessageSquare } from 'lucide-react';
+import { getDeal, askDealQuestion } from '@/api/client';
 import { useDealStatusPolling } from '@/hooks/useDealStatus';
-import { Button } from '@/components/ui/button';
-import { DealStatusBadge } from '@/components/deals/DealStatusBadge';
-import { ExtractionProgress } from '@/components/deals/ExtractionProgress';
-import { CategoryNav } from '@/components/analysis/CategoryNav';
-import { CategorySection } from '@/components/analysis/CategorySection';
-import { RiskPatternCard, RiskPatternsSection } from '@/components/analysis/RiskPatternCard';
-import { DocumentChat } from '@/components/chat/DocumentChat';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
-import type { Category, OntologyQuestion, RPProvision } from '@/types';
-import { getAnswerForQuestion } from '@/hooks/useRPProvision';
-
-// Status border colors
-const statusBorderColors: Record<string, string> = {
-  pending: 'border-t-[hsl(var(--status-pending))]',
-  extracting: 'border-t-[hsl(var(--status-extracting))]',
-  storing: 'border-t-[hsl(var(--status-extracting))]',
-  complete: 'border-t-[hsl(var(--status-complete))]',
-  error: 'border-t-[hsl(var(--status-error))]',
-};
-
-// Empty State Component
-function EmptyState({ 
-  status, 
-  onBack, 
-  onRetry 
-}: { 
-  status?: 'complete' | 'error' | 'pending' | 'extracting' | 'storing';
-  onBack: () => void;
-  onRetry?: () => void;
-}) {
-  const isError = status === 'error';
-  const Icon = isError ? AlertCircle : FileSearch;
-  
-  return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center px-6">
-      <div className={cn(
-        "w-16 h-16 rounded-full flex items-center justify-center mb-4",
-        isError ? "bg-destructive/10" : "bg-muted"
-      )}>
-        <Icon className={cn(
-          "h-8 w-8",
-          isError ? "text-destructive" : "text-muted-foreground"
-        )} />
-      </div>
-      
-      <h3 className="text-lg font-semibold mb-2">
-        {isError ? 'Extraction Failed' : 'No Extracted Data Available'}
-      </h3>
-      
-      <p className="text-muted-foreground text-sm max-w-md mb-6">
-        {isError 
-          ? 'There was an error processing this document. Please try uploading it again or contact support if the issue persists.'
-          : 'Extraction may still be in progress, or this deal hasn\'t been fully processed yet.'}
-      </p>
-      
-      <div className="flex gap-3">
-        <Button variant="outline" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Deals
-        </Button>
-        {onRetry && isError && (
-          <Button onClick={onRetry}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Retry
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AnalysisHeader } from '@/components/analysis/AnalysisHeader';
+import { QuestionInput } from '@/components/analysis/QuestionInput';
+import { SuggestedQuestions } from '@/components/analysis/SuggestedQuestions';
+import { AnswerDisplay } from '@/components/analysis/AnswerDisplay';
+import { SourcesPanel } from '@/components/analysis/SourcesPanel';
+import { ExtractionPending } from '@/components/analysis/ExtractionPending';
+import { useToast } from '@/hooks/use-toast';
+import type { AskResponse } from '@/types';
 
 export default function DealDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [activeCategory, setActiveCategory] = useState<string>('');
+  const { toast } = useToast();
+
+  // State
+  const [question, setQuestion] = useState('');
+  const [currentAnswer, setCurrentAnswer] = useState<AskResponse | null>(null);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
+  const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
 
   // Fetch deal info
   const { data: deal, isLoading: dealLoading } = useQuery({
@@ -90,100 +33,56 @@ export default function DealDetailPage() {
   });
 
   // Poll status during extraction
-  const { data: status, isProcessing, isComplete, isError: statusIsError, hasError } = useDealStatusPolling(id);
+  const { data: status, isProcessing, isComplete } = useDealStatusPolling(id);
 
-  // Fetch ontology questions
-  const { data: questionsResponse } = useQuery({
-    queryKey: ['ontology-questions-rp'],
-    queryFn: getOntologyQuestionsRP,
-    enabled: isComplete,
+  // Ask mutation
+  const askMutation = useMutation({
+    mutationFn: (q: string) => askDealQuestion(id!, q),
+    onSuccess: (data) => {
+      setCurrentAnswer(data);
+      setSourcesExpanded(false);
+      setHighlightedPage(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to get answer",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
-  // Fetch RP provision data
-  const { 
-    data: provision, 
-    isLoading: provisionLoading, 
-    isError: provisionError,
-    refetch: refetchProvision 
-  } = useQuery({
-    queryKey: ['rp-provision', id],
-    queryFn: () => getRPProvision(id!),
-    enabled: !!id && isComplete,
-    retry: false, // Don't retry 404s
-  });
+  // Handle submit
+  const handleSubmit = useCallback(() => {
+    if (!question.trim() || askMutation.isPending) return;
+    askMutation.mutate(question);
+  }, [question, askMutation]);
 
-  // Process questions into categories
-  const { categories, questionsByCategory } = useMemo(() => {
-    const questions = questionsResponse?.questions || [];
-    const byCategory = new Map<string, OntologyQuestion[]>();
-    const cats: Category[] = [];
-    const seenCats = new Set<string>();
+  // Handle suggested question click
+  const handleSuggestedClick = useCallback((q: string) => {
+    setQuestion(q);
+    askMutation.mutate(q);
+  }, [askMutation]);
 
-    questions.forEach((q) => {
-      // Support both category_id and fallback to question_id prefix
-      const categoryId = q.category_id || q.question_id?.split('_').slice(0, 2).join('_') || 'unknown';
-      const categoryName = q.category_name || categoryId;
-      
-      const existing = byCategory.get(categoryId) || [];
-      existing.push(q);
-      byCategory.set(categoryId, existing);
-
-      if (!seenCats.has(categoryId)) {
-        seenCats.add(categoryId);
-        // Extract the letter code from categoryId (e.g., "rp_a" -> "A")
-        const codePart = categoryId.split('_')[1] || categoryId.charAt(0);
-        cats.push({
-          id: categoryId,
-          name: categoryName,
-          code: codePart.charAt(0).toUpperCase(),
-          questionCount: 0,
-          answeredCount: 0,
-        });
+  // Handle citation click in answer
+  const handleCitationClick = useCallback((page: number) => {
+    setSourcesExpanded(true);
+    setHighlightedPage(page);
+    // Scroll to the citation after a short delay to allow expansion
+    setTimeout(() => {
+      const element = document.getElementById(`citation-page-${page}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    });
+    }, 100);
+  }, []);
 
-    // Update counts
-    cats.forEach((cat) => {
-      const qs = byCategory.get(cat.id) || [];
-      cat.questionCount = qs.length;
-      cat.answeredCount = qs.filter((q) => {
-        const { hasAnswer } = getAnswerForQuestion(provision, q);
-        return hasAnswer;
-      }).length;
-    });
-
-    // Sort by category code
-    const order = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    cats.sort((a, b) => order.indexOf(a.code) - order.indexOf(b.code));
-
-    return { categories: cats, questionsByCategory: byCategory };
-  }, [questionsResponse, provision]);
-
-  // Set initial active category
-  useEffect(() => {
-    if (categories.length > 0 && !activeCategory) {
-      setActiveCategory(categories[0].id);
-    }
-  }, [categories, activeCategory]);
-
-  // Handle category change with smooth scrolling
-  const handleCategoryChange = (categoryId: string) => {
-    setActiveCategory(categoryId);
-    const element = document.getElementById(`category-${categoryId}`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
-  const isLoading = dealLoading;
-  const showEmptyState = isComplete && !provisionLoading && (!provision || provisionError);
-
-  if (isLoading) {
+  if (dealLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-muted-foreground">Loading deal data...</p>
+          <p className="text-muted-foreground">Loading deal...</p>
         </div>
       </div>
     );
@@ -191,157 +90,78 @@ export default function DealDetailPage() {
 
   if (!deal) {
     return (
-      <div className="container py-8">
-        <Button variant="ghost" onClick={() => navigate('/')} className="-ml-2 mb-4">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Deals
-        </Button>
+      <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
         <p className="text-muted-foreground">Deal not found</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)]">
-      {/* Header with status-aware border */}
-      <div className={cn(
-        "border-b border-t-4 bg-card px-6 py-4",
-        status ? statusBorderColors[status.status] : 'border-t-transparent'
-      )}>
-        <div className="container px-0">
-          <Button variant="ghost" onClick={() => navigate('/')} className="-ml-2 mb-3" size="sm">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Deals
-          </Button>
+    <div className="min-h-screen bg-muted/30">
+      <AnalysisHeader
+        dealName={deal.deal_name}
+        borrower={deal.borrower}
+        status={status?.status || 'pending'}
+        onBack={() => navigate('/')}
+      />
 
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{deal.deal_name}</h1>
-              <div className="flex items-center gap-4 mt-2 text-muted-foreground text-sm">
-                {deal.borrower && (
-                  <span className="flex items-center gap-1.5">
-                    <Building2 className="h-4 w-4" />
-                    {deal.borrower}
-                  </span>
-                )}
-                {(deal.created_at || deal.upload_date) && (() => {
-                  const dateStr = deal.created_at || deal.upload_date;
-                  if (!dateStr || isNaN(new Date(dateStr).getTime())) return null;
-                  return (
-                    <span className="flex items-center gap-1.5">
-                      <Calendar className="h-4 w-4" />
-                      {format(new Date(dateStr), 'MMMM d, yyyy')}
-                    </span>
-                  );
-                })()}
-              </div>
-            </div>
-            {status && <DealStatusBadge status={status.status} />}
-          </div>
-        </div>
-      </div>
+      <main className="max-w-4xl mx-auto px-4 py-8">
+        {isProcessing && status ? (
+          <ExtractionPending status={status} />
+        ) : !isComplete ? (
+          <ExtractionPending status={status} />
+        ) : (
+          <>
+            {/* Q&A Input Section */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <MessageSquare className="h-5 w-5" />
+                  Ask anything about this agreement
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <QuestionInput
+                  value={question}
+                  onChange={setQuestion}
+                  onSubmit={handleSubmit}
+                  isLoading={askMutation.isPending}
+                  placeholder="What's the J.Crew risk in this deal?"
+                />
 
-      {/* Main Content */}
-      {isProcessing && status ? (
-        <div className="container py-8 max-w-2xl mx-auto">
-          <ExtractionProgress status={status} />
-        </div>
-      ) : showEmptyState ? (
-        <EmptyState 
-          status={hasError ? 'error' : status?.status}
-          onBack={() => navigate('/')}
-          onRetry={provisionError ? () => refetchProvision() : undefined}
-        />
-      ) : (
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left Sidebar - Category Navigation (wider) */}
-          <div className="w-64 border-r bg-sidebar shrink-0">
-            <CategoryNav
-              categories={categories}
-              activeCategory={activeCategory}
-              onCategoryChange={handleCategoryChange}
-              className="h-full"
-            />
-          </div>
+                <SuggestedQuestions
+                  onSelect={handleSuggestedClick}
+                  disabled={askMutation.isPending}
+                />
+              </CardContent>
+            </Card>
 
-          {/* Center - Extracted Data */}
-          <ScrollArea className="flex-1">
-            <div className="p-6 space-y-6 max-w-4xl">
-              {provisionLoading ? (
-                <div className="flex items-center justify-center h-48">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <>
-                  {/* Category sections */}
-                  {categories.map((category) => (
-                    <CategorySection
-                      key={category.id}
-                      categoryId={category.id}
-                      categoryName={category.name}
-                      categoryCode={category.code}
-                      questions={questionsByCategory.get(category.id) || []}
-                      provision={provision}
-                      defaultOpen={category.id === activeCategory}
-                    />
-                  ))}
+            {/* Answer Section */}
+            {(currentAnswer || askMutation.isPending) && (
+              <Card>
+                <CardContent className="pt-6">
+                  <AnswerDisplay
+                    answer={currentAnswer?.answer || ''}
+                    isLoading={askMutation.isPending}
+                    onCitationClick={handleCitationClick}
+                  />
 
-                  {/* Risk Patterns */}
-                  {provision && (
-                    <RiskPatternsSection>
-                      <RiskPatternCard
-                        title="J.Crew Risk"
-                        riskLevel={provision.jcrew_risk_level || 'none'}
-                        description={
-                          provision.jcrew_risk_level === 'high'
-                            ? 'Weak blocker + permissive unrestricted sub rules'
-                            : provision.jcrew_risk_level === 'moderate'
-                            ? 'Some protective provisions present'
-                            : provision.jcrew_risk_level === 'low'
-                            ? 'Strong protective provisions'
-                            : 'No J.Crew risk detected'
-                        }
-                        details={
-                          provision.jcrew_blocker_exists
-                            ? `J.Crew blocker exists with ${provision.jcrew_blocker_overall_strength || 'unknown'} strength.`
-                            : undefined
-                        }
+                  {currentAnswer && currentAnswer.citations.length > 0 && (
+                    <div className="mt-6 pt-6 border-t">
+                      <SourcesPanel
+                        citations={currentAnswer.citations}
+                        isExpanded={sourcesExpanded}
+                        onToggle={() => setSourcesExpanded(!sourcesExpanded)}
+                        highlightedPage={highlightedPage}
                       />
-                      <RiskPatternCard
-                        title="Serta Risk"
-                        riskLevel={provision.serta_risk_level || 'none'}
-                        description={
-                          provision.serta_risk_level === 'high'
-                            ? 'Open market purchase provisions present'
-                            : provision.serta_risk_level === 'moderate'
-                            ? 'Some exchange provisions present'
-                            : 'No Serta risk detected'
-                        }
-                      />
-                      <RiskPatternCard
-                        title="Collateral Leakage"
-                        riskLevel={provision.collateral_leakage_risk || 'none'}
-                        description={
-                          provision.collateral_leakage_risk === 'high'
-                            ? 'Weak asset transfer restrictions'
-                            : provision.collateral_leakage_risk === 'moderate'
-                            ? 'Some asset protections present'
-                            : 'Strong asset transfer restrictions'
-                        }
-                      />
-                    </RiskPatternsSection>
+                    </div>
                   )}
-                </>
-              )}
-            </div>
-          </ScrollArea>
-
-          {/* Right Panel - Document Chat (responsive) */}
-          <div className="w-80 border-l shrink-0 hidden xl:block">
-            <DocumentChat dealId={id!} className="h-full rounded-none border-0" />
-          </div>
-        </div>
-      )}
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+      </main>
     </div>
   );
 }

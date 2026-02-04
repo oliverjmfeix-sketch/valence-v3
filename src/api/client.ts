@@ -8,7 +8,9 @@ import type {
   QAResponse, 
   UploadResponse,
   Provenance,
-  DealAnswer
+  DealAnswer,
+  AskResponse,
+  AnswersResponse
 } from '@/types';
 
 const API_URL = 'https://valencev3-production.up.railway.app';
@@ -90,6 +92,17 @@ export async function askQuestion(dealId: string, question: string): Promise<QAR
     method: 'POST',
     body: JSON.stringify({ question }),
   });
+}
+
+export async function askDealQuestion(dealId: string, question: string): Promise<AskResponse> {
+  return fetchAPI<AskResponse>(`/api/deals/${dealId}/ask`, {
+    method: 'POST',
+    body: JSON.stringify({ question }),
+  });
+}
+
+export async function getAnswers(dealId: string): Promise<AnswersResponse> {
+  return fetchAPI<AnswersResponse>(`/api/deals/${dealId}/answers`);
 }
 
 // ============ Provenance ============
