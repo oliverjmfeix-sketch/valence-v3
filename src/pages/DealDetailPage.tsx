@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Loader2, MessageSquare } from 'lucide-react';
+import { Loader2, MessageSquare, Copy, Check } from 'lucide-react';
 import { getDeal, askDealQuestion } from '@/api/client';
 import { useDealStatusPolling } from '@/hooks/useDealStatus';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +24,7 @@ export default function DealDetailPage() {
   const [currentAnswer, setCurrentAnswer] = useState<AskResponse | null>(null);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Fetch deal info
   const { data: deal, isLoading: dealLoading } = useQuery({
@@ -76,6 +77,17 @@ export default function DealDetailPage() {
       }
     }, 100);
   }, []);
+
+  // Handle copy Q&A
+  const handleCopyQA = useCallback(() => {
+    if (!currentAnswer) return;
+    
+    const textToCopy = `Q: ${currentAnswer.question}\n\nA: ${currentAnswer.answer}`;
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [currentAnswer]);
 
   if (dealLoading) {
     return (
@@ -140,11 +152,28 @@ export default function DealDetailPage() {
             {(currentAnswer || askMutation.isPending) && (
               <Card>
                 <CardContent className="pt-6">
-                  <AnswerDisplay
-                    answer={currentAnswer?.answer || ''}
-                    isLoading={askMutation.isPending}
-                    onCitationClick={handleCitationClick}
-                  />
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <AnswerDisplay
+                        answer={currentAnswer?.answer || ''}
+                        isLoading={askMutation.isPending}
+                        onCitationClick={handleCitationClick}
+                      />
+                    </div>
+                    {currentAnswer && !askMutation.isPending && (
+                      <button
+                        onClick={handleCopyQA}
+                        className="flex-shrink-0 p-2 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                        title="Copy question and answer"
+                      >
+                        {copied ? (
+                          <Check className="h-4 w-4 text-primary" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
+                  </div>
 
                   {currentAnswer && currentAnswer.citations.length > 0 && (
                     <div className="mt-6 pt-6 border-t">
