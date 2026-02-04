@@ -1,115 +1,342 @@
 
-Goal
-- Fix two issues on Deals list (/):
-  1) Clicking the trash icon on a Processing deal “does nothing”
-  2) Page becomes unresponsive (“freeze”) when many deals are Processing
+# Deal Analysis Page with Natural Language Q&A
 
-What I audited (evidence)
-- Current list delete wiring (DealRowActions → DealsPage → AlertDialog) is correct for non-disabled buttons.
-- In my controlled browser run, clicking a deal’s trash icon produced console logs:
-  - “Delete clicked…” → “handleDeleteClick…” → “deleting changed…”
-  and the DELETE request succeeded (200) against `/api/deals/:id`.
-- Status polling on the list is already disabled (refetchInterval: false) but the list still fires 1 status request per deal on initial render (burst concurrency).
+## Overview
 
-Root-cause hypotheses (most likely)
-A) Freeze root cause: initial “N concurrent status fetches” + rendering churn
-- Even without polling, the list triggers a status fetch per row on mount.
-- With 10–20 deals, that’s 10–20 simultaneous network calls plus React renders; with slow network/CPU this can lock the UI, making clicks appear to “do nothing”.
-- The symptom “tooltip shows nothing” is consistent with the main thread being blocked/janky (hover delay, no paint).
+Build a new deal analysis page that focuses on natural language Q&A, allowing users to ask questions about credit agreements and receive AI-generated answers with source citations.
 
-B) Click root cause: event handling + Radix TooltipTrigger wrapper + row navigation + blocked main thread
-- The current structure is: TooltipTrigger(asChild) → span(stopPropagation) → Button(onClick).
-- This should work when UI is responsive, but it is fragile:
-  - The trigger is the span, not the button.
-  - StopPropagation happens on the wrapper, not in capture phase.
-  - If the UI is janking/frozen, user can perceive clicks as not firing.
-- We need a more “bulletproof” event capture arrangement that cannot be stolen by the parent row/card and does not depend on tooltip wrappers.
+## Current State Analysis
 
-Fix strategy (high-confidence)
-1) Eliminate the “N requests on mount” pattern on the Deals list
-- Do not fetch per-row status on initial render.
-- Replace with one of these approaches (preferred order):
+The existing `DealDetailPage.tsx` already has:
+- Deal fetching and status polling
+- A `DocumentChat` component in the right sidebar for Q&A
+- Extracted data display with categories
 
-1.1 Preferred: Single batched backend call for statuses (1 request instead of N)
-- Add a Lovable Cloud backend function (public) like `GET /deal-statuses?ids=...` or `POST /deal-statuses` with JSON body `{ deal_ids: string[] }`.
-- That backend function will call the external API server-side and return a map:
-  - `{ [deal_id]: { status, progress, current_step, ... } }`
-- Concurrency-limit these upstream calls (e.g., 4 at a time) to avoid overwhelming the API and to keep the function responsive.
-- Frontend: in DealsPage, compute `dealIds` from `deals`, and do a single `useQuery(['deal-statuses', dealIds])`.
-- DealRowActions becomes “dumb”: it receives `statusValue` as prop, no `useQuery` inside each row.
-Expected result:
-- List page loads with 1 deals request + 1 statuses request; no more burst of N fetches, so freezes should stop.
+The request is to create a **new focused Q&A experience** that:
+1. Makes Q&A the primary interaction (not a sidebar)
+2. Provides rich answer formatting with markdown
+3. Shows collapsible source citations
+4. Offers suggested questions as prominent chips
 
-1.2 If backend batching is not acceptable right now: lazy/limited client fetching
-- Keep client-side fetching but:
-  - Only fetch statuses after initial paint (setTimeout/idle callback).
-  - Limit concurrency (queue fetches, 3–4 at a time).
-  - Fetch only for visible rows (IntersectionObserver) and skip cards not in view.
-Expected result:
-- Initial render becomes fast; statuses fill in gradually without freezing.
+## Architecture Decision
 
-2) Make delete clicks unstealable and observable (even under UI stress)
-2.1 Simplify DealRowActions markup for reliable events + tooltips
-- Remove the span wrapper and attach event handling directly to the Button (and/or an actions container):
-  - Use `onPointerDownCapture` and `onClickCapture` to stop propagation before the Card/TableRow click handler sees it.
-  - Keep `onClick` for the actual delete handler.
-- Make TooltipTrigger wrap the Button directly (Button is forwardRef) to avoid “trigger is a span” fragility.
-Expected result:
-- Parent row/card navigation cannot interfere; delete handler fires deterministically.
+**Option A**: Replace `DealDetailPage` with the new design
+**Option B**: Create a new route/page alongside the existing detail page
 
-2.2 Add a non-console user-visible debug fallback (temporary, DEV-only)
-- In DEV, fire a toast like “Opening delete dialog…” on delete click.
-Why:
-- If the UI is janking, console logs may not be noticed, but a toast is immediate visual confirmation.
+**Recommendation**: Option A - Update the existing route since the new design encompasses and improves upon the current functionality.
 
-3) Remove remaining contributors to “freeze”
-Even after batching statuses, add these defensive tweaks:
-- Set React Query defaults in QueryClient to reduce surprise refetch storms (safe for list views):
-  - refetchOnWindowFocus: false (globally or at least for the list queries)
-  - refetchOnReconnect: false
-- Ensure no “spin” animations run in a list context (already added `animate={false}` on DealStatusBadge in the list; keep it).
-- Ensure list rendering doesn’t do heavy work inside map loops:
-  - Memoize derived values and avoid inline IIFEs where possible (not critical, but helpful).
+---
 
-4) Verification plan (what I will test after implementing)
-Delete behavior (processing)
-- Ensure at least one deal is actually Processing (pending/extracting/storing).
-- Click trash on that deal:
-  - Confirm DEV toast/log appears.
-  - Confirm AlertDialog opens every time.
-  - Confirm pressing Delete triggers `DELETE /api/deals/:id` (network shows it).
-Freeze behavior
-- Reload / with 10–20 deals:
-  - Confirm network shows:
-    - 1 call to `/api/deals`
-    - 1 call to the batched statuses endpoint (or a throttled trickle if using lazy fetching)
-    - No continuous polling on /.
-- Leave the page idle for 2 minutes:
-  - Confirm no repeated status fetches.
-  - Confirm no “Page unresponsive”.
+## Files to Create
 
-Files that will change (implementation)
-- src/pages/DealsPage.tsx
-  - Move status loading to a single query (batched) or lazy/throttled mechanism.
-  - Pass status into DealRowActions as a prop.
-- src/components/deals/DealRowActions.tsx
-  - Remove per-row useQuery.
-  - Harden event handling with capture-phase stopPropagation.
-  - Simplify TooltipTrigger structure to wrap Button directly.
-- src/api/client.ts
-  - Add client helper for the batched statuses endpoint (if using Lovable Cloud backend function).
-- (New) Lovable Cloud backend function (recommended)
-  - Implement `deal-statuses` (batch) proxy with concurrency limiting and clear error handling.
-  - No database changes required.
+| File | Purpose |
+|------|---------|
+| `src/components/analysis/QuestionInput.tsx` | Large text input with submit button |
+| `src/components/analysis/SuggestedQuestions.tsx` | Clickable suggestion chips |
+| `src/components/analysis/AnswerDisplay.tsx` | Markdown answer renderer with loading skeleton |
+| `src/components/analysis/SourcesPanel.tsx` | Collapsible citations panel |
+| `src/components/analysis/AnalysisHeader.tsx` | Page header with back nav and deal info |
+| `src/components/analysis/ExtractionPending.tsx` | Extraction in-progress message |
 
-Why this will fix both problems
-- The freeze is primarily caused by many status requests and renders competing on the main thread. Reducing N-per-row fetching to 1 batched request (or throttled lazy fetch) removes the primary load spike.
-- Once the UI stays responsive, clicks won’t be “lost”. Additionally, switching to capture-phase propagation control and removing the span/trigger fragility ensures the delete handler fires even if parent rows/cards are clickable.
+## Files to Modify
 
-Rollout / risk
-- Low risk to core data paths: deals list and delete flows remain unchanged; only the status acquisition strategy and click plumbing change.
-- If the batched status endpoint temporarily fails, we’ll render a safe fallback status (e.g., “Pending/Unknown”) and keep delete available.
+| File | Changes |
+|------|---------|
+| `src/types/index.ts` | Add `AskResponse`, `Citation`, `ExtractedAnswer` types |
+| `src/api/client.ts` | Add `askDealQuestion()` function (new endpoint `/ask`) |
+| `src/pages/DealDetailPage.tsx` | Replace with new Q&A-focused layout |
 
-Open questions (non-blocking, but helpful for final tuning)
-- Roughly how many Processing deals do you typically have when it freezes (10, 20, 50+)?
-- Do you need accurate per-deal status on the list at all times, or is “Refresh statuses” sufficient for the list view?
+---
+
+## Implementation Details
+
+### 1. Type Definitions (`src/types/index.ts`)
+
+Add new types for the `/ask` endpoint:
+
+```typescript
+export interface Citation {
+  page: number;
+  text: string | null;
+  question_id: string | null;
+}
+
+export interface AskResponse {
+  question: string;
+  answer: string;
+  citations: Citation[];
+  data_source: {
+    deal_id: string;
+    answers_used: number;
+    total_questions: number;
+  };
+}
+
+export interface ExtractedAnswer {
+  question_id: string;
+  question_text: string;
+  answer_type: 'boolean' | 'currency' | 'percentage' | 'number' | 'string' | 'multiselect';
+  category_id: string;
+  category_name: string;
+  value: unknown;
+  source_text: string | null;
+  source_page: number | null;
+  confidence: string | null;
+}
+
+export interface AnswersResponse {
+  deal_id: string;
+  provision_id: string;
+  extraction_complete: boolean;
+  answer_count: number;
+  total_questions: number;
+  answers: ExtractedAnswer[];
+}
+```
+
+### 2. API Client (`src/api/client.ts`)
+
+Add the new ask endpoint (note: uses `/ask` not `/qa`):
+
+```typescript
+export async function askDealQuestion(dealId: string, question: string): Promise<AskResponse> {
+  return fetchAPI<AskResponse>(`/api/deals/${dealId}/ask`, {
+    method: 'POST',
+    body: JSON.stringify({ question }),
+  });
+}
+
+export async function getAnswers(dealId: string): Promise<AnswersResponse> {
+  return fetchAPI<AnswersResponse>(`/api/deals/${dealId}/answers`);
+}
+```
+
+### 3. QuestionInput Component
+
+Features:
+- Large text input with search/send icon
+- Spinner during loading
+- Clear button when text present
+- Enter key submits
+- Disabled state during request
+
+```text
+┌──────────────────────────────────────────────────────────┐
+│ What's the J.Crew risk in this deal?            [Clear] 🔍│
+└──────────────────────────────────────────────────────────┘
+```
+
+### 4. SuggestedQuestions Component
+
+Render 8 pre-defined questions as clickable chips:
+- J.Crew risk
+- Builder basket
+- Ratio threshold
+- Mgmt equity cap
+- Unsub risks
+- Key exceptions
+- Dividend summary
+- Cross-references
+
+Features:
+- Wrap to multiple rows on narrow screens
+- Subtle background with hover effect
+- Disabled during loading
+
+### 5. AnswerDisplay Component
+
+Features:
+- Parse and render markdown (bold, bullets, symbols)
+- Make `[p.XX]` citations visually distinct (pill/badge style)
+- Loading skeleton with animated lines
+- Fade-in animation on answer arrival
+
+Example rendering:
+```text
+J.Crew Risk: MODERATE
+
+The agreement contains a J.Crew blocker [p.96] but with
+significant gaps:
+
+✓ Covers IP transfers to Unrestricted Subs [p.96]
+✓ Covers designation of IP-holding subs [p.96]
+
+⚠ Exception: ordinary course licenses [p.96]
+⚠ Only "Material" IP covered [p.15]
+```
+
+Uses a simple regex to highlight `[p.XX]` patterns as inline badges.
+
+### 6. SourcesPanel Component
+
+Collapsible accordion showing source citations:
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│ 📄 Sources (3)                                      ▼   │
+├─────────────────────────────────────────────────────────┤
+│ [p.96] "No Credit Party shall transfer any Material    │
+│         Intellectual Property to any Unrestricted..."   │
+│                                                         │
+│ [p.15] "'Material Intellectual Property' means any     │
+│         Intellectual Property that is material..."      │
+└─────────────────────────────────────────────────────────┘
+```
+
+Features:
+- Collapsible with chevron indicator
+- Default collapsed
+- Each citation shows page badge + quoted text
+- If `text` is null, show "See page {page}"
+
+### 7. AnalysisHeader Component
+
+Simple header with:
+- Back arrow + "Back to Deals" link
+- Deal name (large)
+- Borrower name (smaller, muted)
+- Status badge
+
+### 8. ExtractionPending Component
+
+When extraction is in progress:
+- Centered spinner
+- "Analyzing Agreement" heading
+- Current step text
+- Progress bar
+
+---
+
+## Updated Page Layout (`DealDetailPage.tsx`)
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│ ← Back to Deals                           Deal Name     ● Complete       │
+│                                           Borrower                       │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │ 💬 Ask anything about this agreement                               │  │
+│  │                                                                    │  │
+│  │ ┌──────────────────────────────────────────────────────────────┐  │  │
+│  │ │ What's the J.Crew risk in this deal?                     🔍 │  │  │
+│  │ └──────────────────────────────────────────────────────────────┘  │  │
+│  │                                                                    │  │
+│  │ [J.Crew risk] [Builder basket] [Ratio threshold] [Mgmt equity]    │  │
+│  │ [Unsub risks] [Key exceptions] [Dividend summary] [Cross-refs]    │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │                        ANSWER DISPLAY                              │  │
+│  │                                                                    │  │
+│  │  The agreement contains a J.Crew blocker [p.96] but with...       │  │
+│  │                                                                    │  │
+│  │  ✓ Covers IP transfers to Unrestricted Subs [p.96]                │  │
+│  │  ⚠ Exception: ordinary course licenses [p.96]                     │  │
+│  │                                                                    │  │
+│  ├────────────────────────────────────────────────────────────────────┤  │
+│  │ 📄 Sources (3)                                                 ▼  │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## State Management
+
+```typescript
+// In DealDetailPage.tsx
+const [question, setQuestion] = useState('');
+const [currentAnswer, setCurrentAnswer] = useState<AskResponse | null>(null);
+const [sourcesExpanded, setSourcesExpanded] = useState(false);
+
+const askMutation = useMutation({
+  mutationFn: (q: string) => askDealQuestion(dealId!, q),
+  onSuccess: (data) => {
+    setCurrentAnswer(data);
+    setSourcesExpanded(false);
+  },
+});
+```
+
+---
+
+## Technical Considerations
+
+### Markdown Rendering in AnswerDisplay
+
+Use a simple approach without external dependencies:
+
+1. Split answer into lines
+2. Apply bold formatting: `**text**` -> `<strong>text</strong>`
+3. Highlight citations: `[p.XX]` -> `<span class="citation-badge">p.XX</span>`
+4. Detect bullet points (`-`, `•`, `✓`, `⚠`) and render as list items
+
+This keeps the bundle small and avoids adding react-markdown.
+
+### Citation Click Behavior
+
+When user clicks a `[p.XX]` badge in the answer:
+1. Expand the Sources panel if collapsed
+2. Scroll to that specific citation
+3. Briefly highlight it
+
+### Loading States
+
+| State | UI |
+|-------|-----|
+| Page loading | Full-page skeleton |
+| Extraction pending | Centered progress display |
+| Question submitting | Input disabled + spinner, skeleton in answer area |
+| Error | Toast notification + error message in answer area |
+
+---
+
+## Styling Guidelines
+
+| Element | Style |
+|---------|-------|
+| Page background | `bg-gray-50` |
+| Cards | White with subtle shadow |
+| Primary color | Deep navy `#1a1f36` |
+| Accent | Teal `#0d9488` for positive |
+| Warning | Amber `#f59e0b` for caution |
+| Max content width | `max-w-4xl` |
+| Question input | `text-lg` |
+| Answer text | `text-base`, good line-height |
+| Citations | `text-sm`, muted |
+
+---
+
+## Implementation Order
+
+1. Add types to `src/types/index.ts`
+2. Add `askDealQuestion` to `src/api/client.ts`
+3. Create `AnalysisHeader.tsx`
+4. Create `QuestionInput.tsx`
+5. Create `SuggestedQuestions.tsx`
+6. Create `AnswerDisplay.tsx` with markdown parsing
+7. Create `SourcesPanel.tsx` with collapsible accordion
+8. Create `ExtractionPending.tsx`
+9. Update `DealDetailPage.tsx` to use new components
+10. Test loading/error states
+11. Polish animations
+
+---
+
+## Testing Checklist
+
+After implementation, verify:
+
+- [ ] Page loads and shows deal name/borrower/status
+- [ ] Suggested questions render as clickable chips
+- [ ] Clicking a chip fills input and submits automatically
+- [ ] Manual question submission works
+- [ ] Loading spinner appears during request
+- [ ] Answer displays with proper formatting
+- [ ] `[p.XX]` citations are highlighted
+- [ ] Sources panel expands/collapses
+- [ ] Error toast appears on API failure
+- [ ] Extraction pending state shows when deal is processing
+- [ ] Mobile layout is responsive
