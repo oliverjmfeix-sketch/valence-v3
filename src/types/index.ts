@@ -157,3 +157,43 @@ export interface DealAnswer {
   answer: boolean | number | string | null;
   has_provenance: boolean;
 }
+
+// ============ Q&A Types ============
+
+export interface Citation {
+  page: number;
+  text: string | null;
+  question_id: string | null;
+}
+
+export interface AskResponse {
+  question: string;
+  answer: string;
+  citations: Citation[];
+  data_source: {
+    deal_id: string;
+    answers_used: number;
+    total_questions: number;
+  };
+}
+
+export interface ExtractedAnswer {
+  question_id: string;
+  question_text: string;
+  answer_type: 'boolean' | 'currency' | 'percentage' | 'number' | 'string' | 'multiselect';
+  category_id: string;
+  category_name: string;
+  value: unknown;
+  source_text: string | null;
+  source_page: number | null;
+  confidence: string | null;
+}
+
+export interface AnswersResponse {
+  deal_id: string;
+  provision_id: string;
+  extraction_complete: boolean;
+  answer_count: number;
+  total_questions: number;
+  answers: ExtractedAnswer[];
+}
