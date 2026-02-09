@@ -6,7 +6,7 @@ import type {
   AnswersResponse
 } from '@/types';
 
-const API_URL = 'https://mfnnavigatorbackend-production.up.railway.app';
+const API_URL = 'https://valencev3-production.up.railway.app';
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${endpoint}`, {
