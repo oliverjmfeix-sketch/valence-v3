@@ -8,15 +8,14 @@ import { CurrencyAnswer } from './CurrencyAnswer';
 import { PercentageAnswer } from './PercentageAnswer';
 import { MultiselectAnswer } from './MultiselectAnswer';
 import { cn } from '@/lib/utils';
-import type { OntologyQuestion, RPProvision, ConceptApplicability } from '@/types';
-import { getAnswerForQuestion } from '@/hooks/useRPProvision';
+import type { ExtractedAnswer } from '@/types';
+import type { ConceptApplicability } from '@/types/mfn.generated';
 
 interface CategorySectionProps {
   categoryId: string;
   categoryName: string;
   categoryCode: string;
-  questions: OntologyQuestion[];
-  provision: RPProvision | undefined;
+  answers: ExtractedAnswer[];
   defaultOpen?: boolean;
   className?: string;
 }
@@ -25,23 +24,19 @@ export function CategorySection({
   categoryId,
   categoryName,
   categoryCode,
-  questions,
-  provision,
+  answers,
   defaultOpen = true,
   className,
 }: CategorySectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   // Count answered questions
-  const answeredCount = questions.filter((q) => {
-    const { hasAnswer } = getAnswerForQuestion(provision, q);
-    return hasAnswer;
-  }).length;
+  const answeredCount = answers.filter(a => a.value !== null && a.value !== undefined).length;
 
   return (
     <div className={cn('rounded-lg border bg-card', className)} id={`category-${categoryId}`}>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-        {/* Simplified header */}
+        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-3">
             <span className="flex h-6 w-6 items-center justify-center rounded bg-primary text-primary-foreground text-xs font-semibold">
@@ -55,7 +50,7 @@ export function CategorySection({
                 answeredCount === 0 && "opacity-50"
               )}
             >
-              {answeredCount}/{questions.length}
+              {answeredCount}/{answers.length}
             </Badge>
           </div>
           <CollapsibleTrigger asChild>
@@ -71,73 +66,75 @@ export function CategorySection({
 
         <CollapsibleContent>
           <div className="divide-y divide-border">
-            {questions.map((question, index) => {
-              const { value } = getAnswerForQuestion(provision, question);
-              
-              // Render based on answer type
-              return (
-                <div 
-                  key={question.question_id} 
-                  className={cn(
-                    "px-4",
-                    index % 2 === 1 && "bg-muted/30"
-                  )}
-                >
-                  {(() => {
-                    switch (question.answer_type) {
-                      case 'boolean':
-                        return (
-                          <BooleanAnswer
-                            questionText={question.question_text}
-                            value={value as boolean | undefined}
-                          />
-                        );
-                      case 'currency':
-                        return (
-                          <CurrencyAnswer
-                            questionText={question.question_text}
-                            value={value as number | undefined}
-                          />
-                        );
-                      case 'percentage':
-                        return (
-                          <PercentageAnswer
-                            questionText={question.question_text}
-                            value={value as number | undefined}
-                          />
-                        );
-                      case 'number':
-                        return (
-                          <CurrencyAnswer
-                            questionText={question.question_text}
-                            value={value as number | undefined}
-                          />
-                        );
-                      case 'multiselect':
-                        return (
-                          <MultiselectAnswer
-                            questionText={question.question_text}
-                            concepts={(value as ConceptApplicability[]) || []}
-                          />
-                        );
-                      default:
-                        return (
-                          <div className="py-3">
-                            <p className="text-sm">{question.question_text}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {value !== undefined ? String(value) : 'Not found'}
-                            </p>
-                          </div>
-                        );
-                    }
-                  })()}
-                </div>
-              );
-            })}
+            {answers.map((answer, index) => (
+              <div 
+                key={answer.question_id} 
+                className={cn(
+                  "px-4",
+                  index % 2 === 1 && "bg-muted/30"
+                )}
+              >
+                {(() => {
+                  switch (answer.answer_type) {
+                    case 'boolean':
+                      return (
+                        <BooleanAnswer
+                          questionText={answer.question_text}
+                          value={answer.value as boolean | undefined}
+                          sourceText={answer.source_text ?? undefined}
+                          sourcePage={answer.source_page ?? undefined}
+                        />
+                      );
+                    case 'currency':
+                      return (
+                        <CurrencyAnswer
+                          questionText={answer.question_text}
+                          value={answer.value as number | undefined}
+                          sourceText={answer.source_text ?? undefined}
+                          sourcePage={answer.source_page ?? undefined}
+                        />
+                      );
+                    case 'percentage':
+                      return (
+                        <PercentageAnswer
+                          questionText={answer.question_text}
+                          value={answer.value as number | undefined}
+                          sourceText={answer.source_text ?? undefined}
+                          sourcePage={answer.source_page ?? undefined}
+                        />
+                      );
+                    case 'number':
+                      return (
+                        <CurrencyAnswer
+                          questionText={answer.question_text}
+                          value={answer.value as number | undefined}
+                          sourceText={answer.source_text ?? undefined}
+                          sourcePage={answer.source_page ?? undefined}
+                        />
+                      );
+                    case 'multiselect':
+                      return (
+                        <MultiselectAnswer
+                          questionText={answer.question_text}
+                          concepts={(answer.value as ConceptApplicability[]) || []}
+                        />
+                      );
+                    default:
+                      return (
+                        <div className="py-3">
+                          <p className="text-sm">{answer.question_text}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {answer.value !== undefined && answer.value !== null ? String(answer.value) : 'Not found'}
+                          </p>
+                        </div>
+                      );
+                  }
+                })()}
+              </div>
+            ))}
           </div>
           
-          {/* Empty state for no questions */}
-          {questions.length === 0 && (
+          {answers.length === 0 && (
             <div className="px-4 py-6 text-center text-sm text-muted-foreground">
               No questions in this category
             </div>

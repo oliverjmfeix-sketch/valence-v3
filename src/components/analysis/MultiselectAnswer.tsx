@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Check, X, Minus, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { ConceptApplicability } from '@/types';
+import type { ConceptApplicability } from '@/types/mfn.generated';
 
 interface MultiselectAnswerProps {
   questionText: string;
@@ -26,6 +26,7 @@ const statusConfig = {
 function ConceptChip({ concept }: { concept: ConceptApplicability }) {
   const config = statusConfig[concept.applicability_status];
   const Icon = config.icon;
+  const displayName = concept.name ?? concept.concept_id;
 
   return (
     <TooltipProvider>
@@ -39,13 +40,13 @@ function ConceptChip({ concept }: { concept: ConceptApplicability }) {
             )}
           >
             <Icon className="h-3 w-3" />
-            <span>{concept.concept_name}</span>
+            <span>{displayName}</span>
           </Badge>
         </TooltipTrigger>
         <TooltipContent side="bottom" align="start" className="max-w-md p-4">
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-4">
-              <span className="font-medium">{concept.concept_name}</span>
+              <span className="font-medium">{displayName}</span>
               <Badge
                 variant="outline"
                 className={cn('text-xs', config.className)}
