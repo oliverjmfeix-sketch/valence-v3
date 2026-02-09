@@ -1,19 +1,12 @@
 import type { 
   Deal, 
   DealStatus, 
-  RPProvision, 
-  OntologyQuestion, 
-  OntologyQuestionsResponse,
-  OntologyConceptsResponse,
-  QAResponse, 
   UploadResponse,
-  Provenance,
-  DealAnswer,
   AskResponse,
   AnswersResponse
 } from '@/types';
 
-const API_URL = 'https://valencev3-production.up.railway.app';
+const API_URL = 'https://mfnnavigatorbackend-production.up.railway.app';
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${endpoint}`, {
@@ -63,36 +56,7 @@ export async function getDealStatus(dealId: string): Promise<DealStatus> {
   return fetchAPI<DealStatus>(`/api/deals/${dealId}/status`);
 }
 
-// ============ RP Provision ============
-
-export async function getRPProvision(dealId: string): Promise<RPProvision> {
-  return fetchAPI<RPProvision>(`/api/deals/${dealId}/rp-provision`);
-}
-
-// ============ Ontology ============
-
-export async function getOntologyQuestionsRP(): Promise<OntologyQuestionsResponse> {
-  return fetchAPI<OntologyQuestionsResponse>('/api/ontology/questions/RP');
-}
-
-export async function getOntologyConcepts(): Promise<OntologyConceptsResponse> {
-  return fetchAPI<OntologyConceptsResponse>('/api/ontology/concepts');
-}
-
-// Legacy endpoint - kept for backwards compatibility
-export async function getOntologyQuestions(): Promise<OntologyQuestion[]> {
-  const response = await getOntologyQuestionsRP();
-  return response.questions || [];
-}
-
 // ============ Q&A ============
-
-export async function askQuestion(dealId: string, question: string): Promise<QAResponse> {
-  return fetchAPI<QAResponse>(`/api/deals/${dealId}/qa`, {
-    method: 'POST',
-    body: JSON.stringify({ question }),
-  });
-}
 
 export async function askDealQuestion(dealId: string, question: string): Promise<AskResponse> {
   return fetchAPI<AskResponse>(`/api/deals/${dealId}/ask`, {
@@ -101,20 +65,10 @@ export async function askDealQuestion(dealId: string, question: string): Promise
   });
 }
 
+// ============ Extracted Answers ============
+
 export async function getAnswers(dealId: string): Promise<AnswersResponse> {
   return fetchAPI<AnswersResponse>(`/api/deals/${dealId}/answers`);
-}
-
-// ============ Provenance ============
-
-export async function getProvenance(dealId: string, attribute: string): Promise<Provenance> {
-  return fetchAPI<Provenance>(`/api/deals/${dealId}/provenance/${attribute}`);
-}
-
-// ============ Legacy Endpoints ============
-
-export async function getDealAnswers(dealId: string): Promise<DealAnswer[]> {
-  return fetchAPI<DealAnswer[]>(`/api/deals/${dealId}/answers`);
 }
 
 // ============ Delete Deal ============
@@ -146,7 +100,6 @@ export async function getDealStatusesBatch(dealIds: string[]): Promise<Record<st
 
   if (!response.ok) {
     console.error('Failed to fetch batched statuses:', response.status);
-    // Return empty map on failure, let individual rows show "pending"
     return {};
   }
 
