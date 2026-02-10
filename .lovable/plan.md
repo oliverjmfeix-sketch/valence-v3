@@ -1,45 +1,63 @@
 
 
-# Eval Dashboard -- Two Amendments
+# MFN Indicators + Suggested Questions
 
-## 1. Fix sort order in EvalResultsTable
+## Overview
 
-The results table sort priority should put **raw_wins first** (actionable bugs where Valence missed something), then both_weak (ontology gaps), then ties, then valence_wins.
+Two small changes: (1) show MFN/RP extraction status badges in the deal header, and (2) conditionally display MFN suggested questions when MFN data was extracted.
 
-Updated sort priority map:
-```text
-raw_wins    -> 0  (highest priority -- actionable bugs)
-both_weak   -> 1  (ontology gaps -- important but less urgent)
-tie         -> 2
-valence_wins -> 3
+## Changes
+
+### 1. Update `Deal` type (`src/types/index.ts`)
+
+Add optional `mfn_provision` field to the `Deal` interface:
+
+```typescript
+export interface Deal {
+  deal_id: string;
+  deal_name: string;
+  borrower?: string;
+  created_at?: string;
+  upload_date?: string;
+  mfn_provision?: { extracted: boolean };
+}
 ```
 
-This applies in `src/components/eval/EvalResultsTable.tsx` where the verdict-based sort comparator is defined.
+Optional so older responses without it still parse fine.
 
-## 2. AnalysisHeader: use useParams() internally instead of a new dealId prop
+### 2. Update `AnalysisHeader` (`src/components/analysis/AnalysisHeader.tsx`)
 
-`DealDetailPage` already has `const { id } = useParams()` and uses it everywhere. Instead of adding a `dealId` prop to `AnalysisHeader`, the header component will:
+- Accept a new optional prop: `mfnExtracted?: boolean`
+- When status is `complete`, render extraction type indicators below the deal name / borrower line:
+  - `RP` with a green checkmark (always shown when complete)
+  - `MFN` with a green checkmark (only if `mfnExtracted` is true)
+- Styling: small inline badges using `text-xs` muted text with `CheckCircle2` icons, similar to the existing status badge aesthetic but subtler
 
-- Import `useParams` from `react-router-dom` internally
-- Call `const { id } = useParams()` inside itself
-- Use `id` to build the `/deals/${id}/eval` link
-- No prop changes, no changes to the parent component
+### 3. Update `DealDetailPage` (`src/pages/DealDetailPage.tsx`)
 
-Changes in `src/components/analysis/AnalysisHeader.tsx`:
-- Add `useParams` import
-- Add `Link` (or `useNavigate`) import
-- Add `FlaskConical` icon import from lucide-react
-- Render the eval link button next to the status badge when status is `complete`
-- The button links to `/deals/${id}/eval`
+- Pass `mfnExtracted={deal.mfn_provision?.extracted}` to `AnalysisHeader`
+- Pass `mfnExtracted={deal.mfn_provision?.extracted === true}` to `SuggestedQuestions`
 
-No changes needed in `DealDetailPage.tsx` for this.
+### 4. Update `SuggestedQuestions` (`src/components/analysis/SuggestedQuestions.tsx`)
 
-## Summary of files affected
+- Accept new optional prop: `mfnExtracted?: boolean`
+- Add MFN questions to a separate array:
+  - "How strong is the MFN protection in this deal?"
+  - "What loopholes exist in the MFN provision?"
+  - "Can the borrower avoid MFN through reclassification?"
+  - "What yield components are included in the MFN calculation?"
+- Render MFN questions only when `mfnExtracted` is true
+- MFN questions appear after the existing RP questions in the same chip row -- no visual separation needed, they just extend the list
 
-| File | Change |
-|------|--------|
-| `src/components/eval/EvalResultsTable.tsx` (new) | Sort order: raw_wins=0, both_weak=1, tie=2, valence_wins=3 |
-| `src/components/analysis/AnalysisHeader.tsx` | Add useParams() internally for dealId, add FlaskConical eval link button |
+## What does NOT change
 
-All other planned files and behavior remain unchanged from the approved plan.
+- No new API calls
+- No new pages, tabs, or routes
+- No changes to the `/ask` endpoint or answer display
+- No changes to RP analysis display
+- `getDeal` already fetches the deal detail; the backend just now includes `mfn_provision` in that response
+
+## Technical detail
+
+The `mfn_provision?.extracted` check uses optional chaining throughout, so if the backend hasn't deployed the MFN feature yet (or returns a deal without that field), everything degrades gracefully -- no MFN badge, no MFN questions, no errors.
 
