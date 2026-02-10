@@ -14,6 +14,7 @@ export interface Deal {
   borrower?: string;
   created_at?: string;
   upload_date?: string; // Legacy field, prefer created_at
+  mfn_provision?: { extracted: boolean };
 }
 
 export interface DealStatus {

@@ -1,4 +1,4 @@
-import { ArrowLeft, Building2, FlaskConical } from 'lucide-react';
+import { ArrowLeft, Building2, FlaskConical, CheckCircle2 } from 'lucide-react';
 import { useParams, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { DealStatusBadge } from '@/components/deals/DealStatusBadge';
@@ -9,6 +9,7 @@ interface AnalysisHeaderProps {
   borrower?: string;
   status: 'pending' | 'extracting' | 'storing' | 'complete' | 'error';
   onBack: () => void;
+  mfnExtracted?: boolean;
 }
 
 const statusBorderColors: Record<string, string> = {
@@ -19,7 +20,7 @@ const statusBorderColors: Record<string, string> = {
   error: 'border-t-[hsl(var(--status-error))]',
 };
 
-export function AnalysisHeader({ dealName, borrower, status, onBack }: AnalysisHeaderProps) {
+export function AnalysisHeader({ dealName, borrower, status, onBack, mfnExtracted }: AnalysisHeaderProps) {
   const { id } = useParams<{ id: string }>();
 
   return (
@@ -40,6 +41,20 @@ export function AnalysisHeader({ dealName, borrower, status, onBack }: AnalysisH
               <div className="flex items-center gap-1.5 mt-2 text-muted-foreground text-sm">
                 <Building2 className="h-4 w-4" />
                 {borrower}
+              </div>
+            )}
+            {status === 'complete' && (
+              <div className="flex items-center gap-3 mt-2">
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-[hsl(var(--status-complete))]" />
+                  RP
+                </span>
+                {mfnExtracted && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-[hsl(var(--status-complete))]" />
+                    MFN
+                  </span>
+                )}
               </div>
             )}
           </div>

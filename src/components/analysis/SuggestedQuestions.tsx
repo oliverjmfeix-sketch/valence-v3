@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 interface SuggestedQuestionsProps {
   onSelect: (question: string) => void;
   disabled?: boolean;
+  mfnExtracted?: boolean;
 }
 
 const SUGGESTED_QUESTIONS = [
@@ -40,12 +41,21 @@ const SUGGESTED_QUESTIONS = [
   },
 ];
 
-export function SuggestedQuestions({ onSelect, disabled }: SuggestedQuestionsProps) {
+const MFN_QUESTIONS = [
+  { label: "MFN strength", question: "How strong is the MFN protection in this deal?" },
+  { label: "MFN loopholes", question: "What loopholes exist in the MFN provision?" },
+  { label: "MFN reclassification", question: "Can the borrower avoid MFN through reclassification?" },
+  { label: "MFN yield components", question: "What yield components are included in the MFN calculation?" },
+];
+
+export function SuggestedQuestions({ onSelect, disabled, mfnExtracted }: SuggestedQuestionsProps) {
+  const questions = mfnExtracted ? [...SUGGESTED_QUESTIONS, ...MFN_QUESTIONS] : SUGGESTED_QUESTIONS;
+
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">Suggested questions:</p>
       <div className="flex flex-wrap gap-2">
-        {SUGGESTED_QUESTIONS.map((item) => (
+        {questions.map((item) => (
           <button
             key={item.label}
             onClick={() => onSelect(item.question)}

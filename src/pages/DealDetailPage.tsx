@@ -116,6 +116,7 @@ export default function DealDetailPage() {
         borrower={deal.borrower}
         status={status?.status || 'pending'}
         onBack={() => navigate('/')}
+        mfnExtracted={deal.mfn_provision?.extracted}
       />
 
       <main className="max-w-4xl mx-auto px-4 py-8">
@@ -145,6 +146,7 @@ export default function DealDetailPage() {
                 <SuggestedQuestions
                   onSelect={handleSuggestedClick}
                   disabled={askMutation.isPending}
+                  mfnExtracted={deal.mfn_provision?.extracted === true}
                 />
               </CardContent>
             </Card>
