@@ -7,6 +7,7 @@ import { Header } from "@/components/layout/Header";
 import DealsPage from "./pages/DealsPage";
 import UploadPage from "./pages/UploadPage";
 import DealDetailPage from "./pages/DealDetailPage";
+import EvalPage from "./pages/EvalPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,6 +24,7 @@ const App = () => (
             <Route path="/" element={<DealsPage />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/deals/:id" element={<DealDetailPage />} />
+            <Route path="/deals/:id/eval" element={<EvalPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </div>

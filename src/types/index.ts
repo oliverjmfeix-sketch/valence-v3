@@ -96,3 +96,32 @@ export interface AnswersResponse {
   total_questions: number;
   answers: ExtractedAnswer[];
 }
+
+// ============ Eval Types ============
+
+export interface EvalQuestionResult {
+  question: string;
+  raw_answer: string;
+  valence_answer: string;
+  score_raw: number;
+  score_valence: number;
+  winner: "valence" | "raw" | "tie";
+  valence_advantages: string[];
+  valence_gaps: string[];
+  valence_errors: string[];
+  both_missed: string[];
+  verdict: "valence_wins" | "tie" | "raw_wins" | "both_weak";
+}
+
+export interface EvalResult {
+  deal_id: string;
+  total_questions: number;
+  avg_score_raw: number;
+  avg_score_valence: number;
+  valence_win_count: number;
+  tie_count: number;
+  raw_win_count: number;
+  both_weak_count: number;
+  total_time_seconds: number;
+  results: EvalQuestionResult[];
+}

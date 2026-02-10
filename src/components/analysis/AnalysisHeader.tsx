@@ -1,4 +1,5 @@
-import { ArrowLeft, Building2 } from 'lucide-react';
+import { ArrowLeft, Building2, FlaskConical } from 'lucide-react';
+import { useParams, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { DealStatusBadge } from '@/components/deals/DealStatusBadge';
 import { cn } from '@/lib/utils';
@@ -19,6 +20,8 @@ const statusBorderColors: Record<string, string> = {
 };
 
 export function AnalysisHeader({ dealName, borrower, status, onBack }: AnalysisHeaderProps) {
+  const { id } = useParams<{ id: string }>();
+
   return (
     <div className={cn(
       "border-b border-t-4 bg-card px-6 py-4",
@@ -40,7 +43,17 @@ export function AnalysisHeader({ dealName, borrower, status, onBack }: AnalysisH
               </div>
             )}
           </div>
-          <DealStatusBadge status={status} />
+          <div className="flex items-center gap-2">
+            {status === 'complete' && id && (
+              <Link to={`/deals/${id}/eval`}>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <FlaskConical className="h-4 w-4" />
+                  Eval
+                </Button>
+              </Link>
+            )}
+            <DealStatusBadge status={status} />
+          </div>
         </div>
       </div>
     </div>

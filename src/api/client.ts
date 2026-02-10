@@ -3,7 +3,8 @@ import type {
   DealStatus, 
   UploadResponse,
   AskResponse,
-  AnswersResponse
+  AnswersResponse,
+  EvalResult
 } from '@/types';
 
 const API_URL = 'https://valencev3-production.up.railway.app';
@@ -83,6 +84,35 @@ export async function deleteDeal(dealId: string): Promise<void> {
 
 export async function healthCheck(): Promise<{ status: string }> {
   return fetchAPI<{ status: string }>('/health');
+}
+
+// ============ Eval ============
+
+export async function runEval(
+  dealId: string,
+  numQuestions: number,
+  categories: string[]
+): Promise<EvalResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 900_000);
+
+  try {
+    const response = await fetch(`${API_URL}/api/deals/${dealId}/eval`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ num_questions: numQuestions, categories }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText);
+      throw new Error(text || `API Error: ${response.status}`);
+    }
+
+    return response.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ============ Batched Status Fetching ============
