@@ -1,70 +1,45 @@
 
 
-# Evidence Panel Feature
+# Eval Dashboard -- Two Amendments
 
-## Overview
+## 1. Fix sort order in EvalResultsTable
 
-Add a collapsible "Show evidence" panel below the answer display that reveals the specific extracted data points Valence used to form its answer. Backward-compatible with backends that don't yet return the `evidence` field.
+The results table sort priority should put **raw_wins first** (actionable bugs where Valence missed something), then both_weak (ontology gaps), then ties, then valence_wins.
 
-## Changes
-
-### 1. Update Types (`src/types/index.ts`)
-
-Add `EvidenceItem` interface and an optional `evidence` field to `AskResponse`:
-
-```typescript
-export interface EvidenceItem {
-  question_id: string;
-  question_text: string;
-  value: boolean | number | string;
-  source_text: string;
-  source_page: number | null;
-  source_section: string;
-  confidence: "high" | "medium" | "low" | "not_found";
-}
-
-export interface AskResponse {
-  question: string;
-  answer: string;
-  citations: Citation[];
-  evidence?: EvidenceItem[];  // optional for backward compat
-  data_source: { ... };
-}
+Updated sort priority map:
+```text
+raw_wins    -> 0  (highest priority -- actionable bugs)
+both_weak   -> 1  (ontology gaps -- important but less urgent)
+tie         -> 2
+valence_wins -> 3
 ```
 
-The `evidence` field is optional (`?`), so older responses without it parse fine. The frontend uses `currentAnswer?.evidence ?? []` which resolves to an empty array, and `EvidencePanel` renders nothing when given an empty array.
+This applies in `src/components/eval/EvalResultsTable.tsx` where the verdict-based sort comparator is defined.
 
-### 2. Create `src/components/analysis/EvidencePanel.tsx`
+## 2. AnalysisHeader: use useParams() internally instead of a new dealId prop
 
-New component accepting `evidence: EvidenceItem[]`.
+`DealDetailPage` already has `const { id } = useParams()` and uses it everywhere. Instead of adding a `dealId` prop to `AnalysisHeader`, the header component will:
 
-- **Empty/missing evidence:** Render nothing (no toggle, no panel).
-- **Collapsed state (default):** Subtle toggle row: chevron icon + "Show evidence (N data points)". Styled as muted text link, not a button.
-- **Expanded state:** Scrollable list of evidence cards (max-height with `overflow-y: auto`), using `Collapsible` from Radix.
+- Import `useParams` from `react-router-dom` internally
+- Call `const { id } = useParams()` inside itself
+- Use `id` to build the `/deals/${id}/eval` link
+- No prop changes, no changes to the parent component
 
-Each evidence card:
-- Header row: `question_text` left, confidence badge right
-  - high: green bg, checkmark, "HIGH"
-  - medium: amber bg, "MEDIUM"
-  - low: red-orange bg, "LOW"
-  - not_found: gray bg, "NOT FOUND"
-- Value row: booleans as colored "Yes"/"No", numbers formatted with commas/dollar sign, strings quoted and truncated to 200 chars
-- Citation row: `source_section` + `source_page` (e.g. "Section 6.06(k), p.83"), or just "p.83" if no section
-- Source quote: `source_text` in italic, truncated to 300 chars
+Changes in `src/components/analysis/AnalysisHeader.tsx`:
+- Add `useParams` import
+- Add `Link` (or `useNavigate`) import
+- Add `FlaskConical` icon import from lucide-react
+- Render the eval link button next to the status badge when status is `complete`
+- The button links to `/deals/${id}/eval`
 
-### 3. Update `src/pages/DealDetailPage.tsx`
+No changes needed in `DealDetailPage.tsx` for this.
 
-- Import `EvidencePanel`
-- Render it after `AnswerDisplay` + copy button, **before** the `SourcesPanel` border section
-- Pass `currentAnswer?.evidence ?? []`
+## Summary of files affected
 
-No changes to the `/ask` request, `AnswerDisplay`, or `SourcesPanel`.
+| File | Change |
+|------|--------|
+| `src/components/eval/EvalResultsTable.tsx` (new) | Sort order: raw_wins=0, both_weak=1, tie=2, valence_wins=3 |
+| `src/components/analysis/AnalysisHeader.tsx` | Add useParams() internally for dealId, add FlaskConical eval link button |
 
-## Note on EvidencePanel vs SourcesPanel Coexistence
-
-Both panels will render when evidence exists and citations exist. They serve related but distinct purposes:
-- **EvidencePanel**: Shows the structured data points (extracted Q&A pairs) that informed the answer
-- **SourcesPanel**: Shows the page-level citations referenced in the answer text
-
-During testing, watch whether users find both useful simultaneously or if evidence makes sources feel redundant. If so, a future iteration could collapse SourcesPanel by default when evidence is present, or merge page references into evidence cards. No action needed now -- ship both and observe.
+All other planned files and behavior remain unchanged from the approved plan.
 
