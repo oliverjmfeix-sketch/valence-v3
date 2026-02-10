@@ -52,10 +52,21 @@ export interface Citation {
   question_id: string | null;
 }
 
+export interface EvidenceItem {
+  question_id: string;
+  question_text: string;
+  value: boolean | number | string;
+  source_text: string;
+  source_page: number | null;
+  source_section: string;
+  confidence: "high" | "medium" | "low" | "not_found";
+}
+
 export interface AskResponse {
   question: string;
   answer: string;
   citations: Citation[];
+  evidence?: EvidenceItem[];
   data_source: {
     deal_id: string;
     answers_used: number;
