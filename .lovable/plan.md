@@ -1,63 +1,77 @@
-
-
-# MFN Indicators + Suggested Questions
+# Fix Frontend-Backend Connection Mismatches
 
 ## Overview
 
-Two small changes: (1) show MFN/RP extraction status badges in the deal header, and (2) conditionally display MFN suggested questions when MFN data was extracted.
+Five targeted fixes to align frontend types and API calls with what the backend actually returns. No refactors, no new features -- just correcting mismatches.
 
 ## Changes
 
-### 1. Update `Deal` type (`src/types/index.ts`)
+### Issue 1: Fix AskResponse.data_source field names (HIGH)
 
-Add optional `mfn_provision` field to the `Deal` interface:
+**File: `src/types/index.ts**`
 
-```typescript
-export interface Deal {
-  deal_id: string;
-  deal_name: string;
-  borrower?: string;
-  created_at?: string;
-  upload_date?: string;
-  mfn_provision?: { extracted: boolean };
-}
-```
+Update `AskResponse` to match backend response:
 
-Optional so older responses without it still parse fine.
+- `answers_used` becomes `scalar_answers`
+- `total_questions` becomes `multiselect_answers`
+- Add optional `covenant_type` and `model` fields
 
-### 2. Update `AnalysisHeader` (`src/components/analysis/AnalysisHeader.tsx`)
+No component references `data_source.answers_used` or `data_source.total_questions` directly, so this is a type-only fix with no downstream UI changes needed.
 
-- Accept a new optional prop: `mfnExtracted?: boolean`
-- When status is `complete`, render extraction type indicators below the deal name / borrower line:
-  - `RP` with a green checkmark (always shown when complete)
-  - `MFN` with a green checkmark (only if `mfnExtracted` is true)
-- Styling: small inline badges using `text-xs` muted text with `CheckCircle2` icons, similar to the existing status badge aesthetic but subtler
+### Issue 2: Fix getDealStatusesBatch to call Railway directly (HIGH)
 
-### 3. Update `DealDetailPage` (`src/pages/DealDetailPage.tsx`)
+**File: `src/api/client.ts**`
 
-- Pass `mfnExtracted={deal.mfn_provision?.extracted}` to `AnalysisHeader`
-- Pass `mfnExtracted={deal.mfn_provision?.extracted === true}` to `SuggestedQuestions`
+Replace the Supabase edge function proxy call with direct Railway calls using the existing `getDealStatus` function. Fetch in parallel with a concurrency limit of 5. On individual failure, return a fallback `pending` status instead of failing the whole batch.
 
-### 4. Update `SuggestedQuestions` (`src/components/analysis/SuggestedQuestions.tsx`)
+Remove the `SUPABASE_URL` import since it's no longer needed in this file.
 
-- Accept new optional prop: `mfnExtracted?: boolean`
-- Add MFN questions to a separate array:
-  - "How strong is the MFN protection in this deal?"
-  - "What loopholes exist in the MFN provision?"
-  - "Can the borrower avoid MFN through reclassification?"
-  - "What yield components are included in the MFN calculation?"
-- Render MFN questions only when `mfnExtracted` is true
-- MFN questions appear after the existing RP questions in the same chip row -- no visual separation needed, they just extend the list
+The Supabase edge function `supabase/functions/deal-statuses/index.ts` becomes unused but will not be deleted in this change (can be cleaned up separately).
+
+### Issue 3: Make AnswersResponse.provision_id optional (MEDIUM)
+
+**File: `src/types/index.ts**`
+
+Change `provision_id: string` to `provision_id?: string`. No components reference this field, so no downstream changes needed.
+
+### Issue 4: Add missing fields to Deal type (MEDIUM)
+
+**File: `src/types/index.ts**`
+
+Add optional fields the backend returns on the detail endpoint:
+
+- `answers?: Record<string, any>` -- RP answers dict
+- `applicabilities?: Record<string, any>`
+- Expand `mfn_provision` to include optional `answers` dict
+
+### Issue 5: Load eval categories from backend (MEDIUM)
+
+**File: `src/api/client.ts**`
+
+Add a `getOntologyCategories` function that calls `GET /api/ontology/categories`. The `OntologyCategory` type already exists in `src/types/mfn.generated.ts`.
+
+When mapping backend categories to eval chips, check whether the eval endpoint expects the raw `category_id` from TypeDB or a shortened version. If the backend eval function strips the `rp_` prefix internally, pass the full ID. If not, the mapping may need a prefix strip: `c.category_id.replace('rp_', '')`.
+
+**File: `src/pages/EvalPage.tsx**`
+
+Replace the hardcoded `ALL_CATEGORIES` array with a `useQuery` call to `getOntologyCategories`. Map backend categories to `{ id, label }` for the chip UI. Keep the hardcoded list as a fallback if the fetch fails.
+
+Initialize `selectedCategories` from the fetched list (all selected by default).
+
+## Files summary
+
+
+| File                     | Changes                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| `src/types/index.ts`     | Fix AskResponse.data_source fields, make provision_id optional, expand Deal type |
+| `src/api/client.ts`      | Rewrite getDealStatusesBatch to call Railway directly, add getOntologyCategories |
+| `src/pages/EvalPage.tsx` | Fetch categories from backend with hardcoded fallback                            |
+
 
 ## What does NOT change
 
-- No new API calls
-- No new pages, tabs, or routes
-- No changes to the `/ask` endpoint or answer display
-- No changes to RP analysis display
-- `getDeal` already fetches the deal detail; the backend just now includes `mfn_provision` in that response
-
-## Technical detail
-
-The `mfn_provision?.extracted` check uses optional chaining throughout, so if the backend hasn't deployed the MFN feature yet (or returns a deal without that field), everything degrades gracefully -- no MFN badge, no MFN questions, no errors.
-
+- No changes to working endpoints (deals list, upload, status polling, answers, ask, delete, health)
+- No changes to `useRPProvision.ts` or `groupAnswersByCategory`
+- No changes to UI components (AnswerDisplay, SourcesPanel, EvidencePanel, etc.)
+- No changes to the Supabase client or config files
+- No changes to `DealDetailPage.tsx`
