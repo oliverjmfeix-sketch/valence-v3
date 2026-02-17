@@ -14,7 +14,12 @@ export interface Deal {
   borrower?: string;
   created_at?: string;
   upload_date?: string; // Legacy field, prefer created_at
-  mfn_provision?: { extracted: boolean };
+  answers?: Record<string, any>;
+  applicabilities?: Record<string, any>;
+  mfn_provision?: {
+    extracted: boolean;
+    answers?: Record<string, any>;
+  };
 }
 
 export interface DealStatus {
@@ -68,10 +73,12 @@ export interface AskResponse {
   answer: string;
   citations: Citation[];
   evidence?: EvidenceItem[];
+  covenant_type?: string;
+  model?: string;
   data_source: {
     deal_id: string;
-    answers_used: number;
-    total_questions: number;
+    scalar_answers: number;
+    multiselect_answers: number;
   };
 }
 
@@ -91,7 +98,7 @@ export interface ExtractedAnswer {
 
 export interface AnswersResponse {
   deal_id: string;
-  provision_id: string;
+  provision_id?: string;
   extraction_complete: boolean;
   answer_count: number;
   total_questions: number;

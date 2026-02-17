@@ -117,22 +117,38 @@ export async function runEval(
 
 // ============ Batched Status Fetching ============
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-
 export async function getDealStatusesBatch(dealIds: string[]): Promise<Record<string, DealStatus>> {
   if (dealIds.length === 0) return {};
 
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/deal-statuses`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ deal_ids: dealIds }),
-  });
+  const results: Record<string, DealStatus> = {};
+  const CONCURRENCY = 5;
 
-  if (!response.ok) {
-    console.error('Failed to fetch batched statuses:', response.status);
-    return {};
+  for (let i = 0; i < dealIds.length; i += CONCURRENCY) {
+    const chunk = dealIds.slice(i, i + CONCURRENCY);
+    const statuses = await Promise.all(
+      chunk.map(async (id) => {
+        try {
+          return { id, status: await getDealStatus(id) };
+        } catch {
+          return {
+            id,
+            status: { deal_id: id, status: 'pending' as const, progress: 0, current_step: null } as DealStatus,
+          };
+        }
+      })
+    );
+    for (const { id, status } of statuses) {
+      results[id] = status;
+    }
   }
 
-  const data = await response.json();
-  return data.statuses || {};
+  return results;
+}
+
+// ============ Ontology ============
+
+import type { OntologyCategory } from '@/types/mfn.generated';
+
+export async function getOntologyCategories(): Promise<OntologyCategory[]> {
+  return fetchAPI<OntologyCategory[]>('/api/ontology/categories');
 }
