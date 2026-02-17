@@ -7,13 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { runEval } from '@/api/client';
+import { useQuery } from '@tanstack/react-query';
+import { runEval, getOntologyCategories } from '@/api/client';
 import { EvalSummaryCards } from '@/components/eval/EvalSummaryCards';
 import { EvalResultsTable } from '@/components/eval/EvalResultsTable';
 import { EvalQuestionDetail } from '@/components/eval/EvalQuestionDetail';
 import type { EvalResult } from '@/types';
 
-const ALL_CATEGORIES = [
+const FALLBACK_CATEGORIES = [
   { id: 'builder_basket', label: 'Builder Basket' },
   { id: 'jcrew', label: 'J.Crew' },
   { id: 'ratio_basket', label: 'Ratio Basket' },
@@ -26,11 +27,27 @@ export default function EvalPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const { data: backendCategories } = useQuery({
+    queryKey: ['ontology-categories'],
+    queryFn: getOntologyCategories,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const evalCategories = backendCategories?.map(c => ({
+    id: c.category_id,
+    label: c.name,
+  })) ?? FALLBACK_CATEGORIES;
+
   const [numQuestions, setNumQuestions] = useState(15);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(ALL_CATEGORIES.map(c => c.id));
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [result, setResult] = useState<EvalResult | null>(null);
+
+  // Select all categories when they load
+  useEffect(() => {
+    setSelectedCategories(evalCategories.map(c => c.id));
+  }, [backendCategories]);
 
   const detailRefs = useRef<React.RefObject<HTMLDivElement>[]>([]);
 
@@ -113,7 +130,7 @@ export default function EvalPage() {
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {ALL_CATEGORIES.map(cat => (
+                  {evalCategories.map(cat => (
                     <Badge
                       key={cat.id}
                       variant={selectedCategories.includes(cat.id) ? 'default' : 'outline'}
