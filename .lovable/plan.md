@@ -1,77 +1,70 @@
-# Fix Frontend-Backend Connection Mismatches
+
+
+# Reasoning Chain Panel
 
 ## Overview
 
-Five targeted fixes to align frontend types and API calls with what the backend actually returns. No refactors, no new features -- just correcting mismatches.
+Add a collapsible "Show analysis" panel to the deal Q&A interface that renders the structured reasoning chain returned by the backend when `show_reasoning: true` is sent. The panel sits between the answer and the evidence panel, matching the existing design language.
 
 ## Changes
 
-### Issue 1: Fix AskResponse.data_source field names (HIGH)
+### 1. Add reasoning types (`src/types/index.ts`)
 
-**File: `src/types/index.ts**`
+Insert new interfaces above `AskResponse`:
 
-Update `AskResponse` to match backend response:
+- `ReasoningProvision` -- question_id, optional field, value, source_page, why_relevant
+- `ReasoningInteraction` -- finding, chain (string array), implication
+- `ReasoningEvidenceStats` -- total_available, cited_in_answer
+- `ReasoningChain` -- issue, provisions, analysis (string array), interactions, conclusion, evidence_stats
 
-- `answers_used` becomes `scalar_answers`
-- `total_questions` becomes `multiselect_answers`
-- Add optional `covenant_type` and `model` fields
+Add `reasoning?: ReasoningChain | null` and `routed_categories?: string[]` to `AskResponse`.
 
-No component references `data_source.answers_used` or `data_source.total_questions` directly, so this is a type-only fix with no downstream UI changes needed.
+### 2. Send `show_reasoning: true` (`src/api/client.ts`)
 
-### Issue 2: Fix getDealStatusesBatch to call Railway directly (HIGH)
+Update `askDealQuestion` to include `show_reasoning: true` in the POST body alongside `question`. One-line change.
 
-**File: `src/api/client.ts**`
+### 3. New component (`src/components/analysis/ReasoningPanel.tsx`)
 
-Replace the Supabase edge function proxy call with direct Railway calls using the existing `getDealStatus` function. Fetch in parallel with a concurrency limit of 5. On individual failure, return a fallback `pending` status instead of failing the whole batch.
+A collapsible panel following the same pattern as `EvidencePanel`:
 
-Remove the `SUPABASE_URL` import since it's no longer needed in this file.
+- **Trigger:** "Show analysis (N provisions, M interactions)" with chevron toggle, collapsed by default
+- **Section 1 -- Issue:** Subtle banner with `Scale` icon, italic muted text framing the legal question
+- **Section 2 -- Provisions:** "Relevant Provisions" header with count badge. Each provision as a compact card: mono-font question_id label, formatted value (reusing the same boolean/currency/string formatting pattern from EvidencePanel), why_relevant text, optional page badge
+- **Section 3 -- Analysis:** "Provision Analysis" header. Each analysis string as a bullet. Text in square brackets (e.g. `[jc_t1_01]`) styled as inline code spans via regex replacement
+- **Section 4 -- Interactions:** "Interaction Findings" header, only rendered if interactions exist. Each interaction as an amber left-bordered card with AlertTriangle icon on the finding, numbered chain steps with mono-font question_id portions, and the implication as an indented concluding line
+- **Section 5 -- Conclusion:** Banner with CheckCircle2 icon, medium-weight normal-color text
+- **Footer:** Stats line "Used N of M available data points"
 
-The Supabase edge function `supabase/functions/deal-statuses/index.ts` becomes unused but will not be deleted in this change (can be cleaned up separately).
+Uses: `Collapsible`/`CollapsibleContent`/`CollapsibleTrigger`, `Badge`, `cn`, lucide icons (`ChevronRight`, `ChevronDown`, `Scale`, `AlertTriangle`, `CheckCircle2`).
 
-### Issue 3: Make AnswersResponse.provision_id optional (MEDIUM)
+### 4. Wire into DealDetailPage (`src/pages/DealDetailPage.tsx`)
 
-**File: `src/types/index.ts**`
+Import `ReasoningPanel`. Insert it between the answer div and `EvidencePanel`:
 
-Change `provision_id: string` to `provision_id?: string`. No components reference this field, so no downstream changes needed.
+```text
+  </div>  (end of answer + copy button wrapper)
 
-### Issue 4: Add missing fields to Deal type (MEDIUM)
+  {currentAnswer?.reasoning && (
+    <ReasoningPanel reasoning={currentAnswer.reasoning} />
+  )}
 
-**File: `src/types/index.ts**`
+  <EvidencePanel ... />
+```
 
-Add optional fields the backend returns on the detail endpoint:
-
-- `answers?: Record<string, any>` -- RP answers dict
-- `applicabilities?: Record<string, any>`
-- Expand `mfn_provision` to include optional `answers` dict
-
-### Issue 5: Load eval categories from backend (MEDIUM)
-
-**File: `src/api/client.ts**`
-
-Add a `getOntologyCategories` function that calls `GET /api/ontology/categories`. The `OntologyCategory` type already exists in `src/types/mfn.generated.ts`.
-
-When mapping backend categories to eval chips, check whether the eval endpoint expects the raw `category_id` from TypeDB or a shortened version. If the backend eval function strips the `rp_` prefix internally, pass the full ID. If not, the mapping may need a prefix strip: `c.category_id.replace('rp_', '')`.
-
-**File: `src/pages/EvalPage.tsx**`
-
-Replace the hardcoded `ALL_CATEGORIES` array with a `useQuery` call to `getOntologyCategories`. Map backend categories to `{ id, label }` for the chip UI. Keep the hardcoded list as a fallback if the fetch fails.
-
-Initialize `selectedCategories` from the fetched list (all selected by default).
+No other changes to DealDetailPage state, mutations, or callbacks.
 
 ## Files summary
 
-
-| File                     | Changes                                                                          |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| `src/types/index.ts`     | Fix AskResponse.data_source fields, make provision_id optional, expand Deal type |
-| `src/api/client.ts`      | Rewrite getDealStatusesBatch to call Railway directly, add getOntologyCategories |
-| `src/pages/EvalPage.tsx` | Fetch categories from backend with hardcoded fallback                            |
-
+| File | Change |
+|------|--------|
+| `src/types/index.ts` | Add 4 reasoning interfaces, add `reasoning` and `routed_categories` to AskResponse |
+| `src/api/client.ts` | Add `show_reasoning: true` to askDealQuestion body |
+| `src/components/analysis/ReasoningPanel.tsx` | NEW -- collapsible 5-section reasoning panel |
+| `src/pages/DealDetailPage.tsx` | Import and render ReasoningPanel conditionally |
 
 ## What does NOT change
 
-- No changes to working endpoints (deals list, upload, status polling, answers, ask, delete, health)
-- No changes to `useRPProvision.ts` or `groupAnswersByCategory`
-- No changes to UI components (AnswerDisplay, SourcesPanel, EvidencePanel, etc.)
-- No changes to the Supabase client or config files
-- No changes to `DealDetailPage.tsx`
+- No changes to AnswerDisplay, SourcesPanel, EvidencePanel, QuestionInput, SuggestedQuestions
+- No changes to other pages, routing, or backend config
+- Panel is invisible when reasoning is null/undefined (backwards compatible)
+
