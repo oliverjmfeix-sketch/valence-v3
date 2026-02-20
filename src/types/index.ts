@@ -50,6 +50,36 @@ export interface Category {
   answeredCount: number;
 }
 
+// ============ Reasoning Chain Types ============
+
+export interface ReasoningProvision {
+  question_id: string;
+  field?: string;
+  value: boolean | number | string;
+  source_page: number | null;
+  why_relevant: string;
+}
+
+export interface ReasoningInteraction {
+  finding: string;
+  chain: string[];
+  implication: string;
+}
+
+export interface ReasoningEvidenceStats {
+  total_available: number;
+  cited_in_answer: number;
+}
+
+export interface ReasoningChain {
+  issue: string;
+  provisions: ReasoningProvision[];
+  analysis: string[];
+  interactions: ReasoningInteraction[];
+  conclusion: string;
+  evidence_stats: ReasoningEvidenceStats;
+}
+
 // ============ Q&A Types ============
 
 export interface Citation {
@@ -73,7 +103,9 @@ export interface AskResponse {
   answer: string;
   citations: Citation[];
   evidence?: EvidenceItem[];
+  reasoning?: ReasoningChain | null;
   covenant_type?: string;
+  routed_categories?: string[];
   model?: string;
   data_source: {
     deal_id: string;

@@ -11,6 +11,7 @@ import { SuggestedQuestions } from '@/components/analysis/SuggestedQuestions';
 import { AnswerDisplay } from '@/components/analysis/AnswerDisplay';
 import { SourcesPanel } from '@/components/analysis/SourcesPanel';
 import { EvidencePanel } from '@/components/analysis/EvidencePanel';
+import { ReasoningPanel } from '@/components/analysis/ReasoningPanel';
 import { ExtractionPending } from '@/components/analysis/ExtractionPending';
 import { useToast } from '@/hooks/use-toast';
 import type { AskResponse } from '@/types';
@@ -177,6 +178,10 @@ export default function DealDetailPage() {
                       </button>
                     )}
                     </div>
+
+                  {currentAnswer?.reasoning && (
+                    <ReasoningPanel reasoning={currentAnswer.reasoning} />
+                  )}
 
                   <EvidencePanel evidence={currentAnswer?.evidence ?? []} />
 
