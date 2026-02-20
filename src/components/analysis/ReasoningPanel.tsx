@@ -161,8 +161,11 @@ export function ReasoningPanel({ reasoning }: ReasoningPanelProps) {
 
   if (!reasoning) return null;
 
-  const provCount = reasoning.provisions.length;
-  const interCount = reasoning.interactions.length;
+  const provisions = reasoning.provisions ?? [];
+  const analysis = reasoning.analysis ?? [];
+  const interactions = reasoning.interactions ?? [];
+  const provCount = provisions.length;
+  const interCount = interactions.length;
 
   return (
     <div className="mt-5 mb-1">
@@ -198,7 +201,7 @@ export function ReasoningPanel({ reasoning }: ReasoningPanelProps) {
                 <div>
                   <SectionHeader icon={FileText} title="Relevant Provisions" count={provCount} />
                   <div className="mt-2.5 grid gap-1.5 max-h-[20rem] overflow-y-auto pr-1">
-                    {reasoning.provisions.map((p, i) => (
+                    {provisions.map((p, i) => (
                       <ProvisionCard key={i} provision={p} />
                     ))}
                   </div>
@@ -206,11 +209,11 @@ export function ReasoningPanel({ reasoning }: ReasoningPanelProps) {
               )}
 
               {/* ── Section 3: Analysis ── */}
-              {reasoning.analysis.length > 0 && (
+              {analysis.length > 0 && (
                 <div>
                   <SectionHeader icon={Brain} title="Provision Analysis" />
                   <ol className="mt-2.5 space-y-2 pl-0">
-                    {reasoning.analysis.map((step, i) => (
+                    {analysis.map((step, i) => (
                       <li key={i} className="flex items-start gap-2.5">
                         <span className="text-[10px] font-mono text-muted-foreground bg-muted rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5 border border-border">
                           {i + 1}
@@ -229,7 +232,7 @@ export function ReasoningPanel({ reasoning }: ReasoningPanelProps) {
                 <div>
                   <SectionHeader icon={Link2} title="Interaction Findings" count={interCount} />
                   <div className="mt-2.5 space-y-3">
-                    {reasoning.interactions.map((inter, i) => (
+                    {interactions.map((inter, i) => (
                       <InteractionCard key={i} interaction={inter} index={i} />
                     ))}
                   </div>
@@ -252,7 +255,7 @@ export function ReasoningPanel({ reasoning }: ReasoningPanelProps) {
             <div className="px-4 py-2 bg-muted/30 border-t border-border flex items-center justify-end gap-1.5">
               <BarChart3 className="h-3 w-3 text-muted-foreground" />
               <span className="text-[11px] text-muted-foreground">
-                Used {reasoning.evidence_stats.cited_in_answer} of {reasoning.evidence_stats.total_available} available data points
+                Used {reasoning.evidence_stats?.cited_in_answer ?? 0} of {reasoning.evidence_stats?.total_available ?? 0} available data points
               </span>
             </div>
           </div>
