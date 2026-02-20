@@ -62,7 +62,7 @@ export async function getDealStatus(dealId: string): Promise<DealStatus> {
 export async function askDealQuestion(dealId: string, question: string): Promise<AskResponse> {
   return fetchAPI<AskResponse>(`/api/deals/${dealId}/ask`, {
     method: 'POST',
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, show_reasoning: true }),
   });
 }
 
